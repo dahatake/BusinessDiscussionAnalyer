@@ -11,6 +11,7 @@ import { snapLayout, type SnapKind, type SnapOpts } from '../workspace/snap';
 import { autoTree } from '../workspace/autoLayout';
 import { TIERS, classify, type Tier, type TierOverrides } from '../workspace/tiers';
 import { VIEW_MODES, WORLD_VIEWS, type ViewMode, type WorldView } from '../view/viewModel';
+import { MIN_WINDOW_H, MIN_WINDOW_W, makeRoom } from '../workspace/windowLimits';
 
 /** コンポーネントごとのビューの切替の状態（FR-217・FR-218）。持たない項目は既定（表示モードは画面の既定、世界の表示は「両方」） */
 export interface ViewSetting { mode?: ViewMode; world?: WorldView }
@@ -31,10 +32,17 @@ export function setAvailableComponents(keys: readonly string[]): void {
 export interface FloatRect { x: number; y: number; w: number; h: number }
 export type FloatMap = Record<string, FloatRect>;
 const MIN_FLOAT = 0.1;
-/** 作業領域の外へ出ないように収める */
+/** 作業領域の大きさ（CSS px。Workspace が測って伝える）。自由配置の下限（PARAM-134・PARAM-135）を割合へ直すのに使う。0 なら不明 */
+let areaSize = { w: 0, h: 0 };
+export function setWorkspaceArea(w: number, h: number): void {
+  areaSize = { w: Math.max(0, w), h: Math.max(0, h) };
+}
+/** 作業領域の外へ出ないように収める。幅・高さは PARAM-134・PARAM-135 以上にする（領域がそれより狭いときは領域いっぱい） */
 export function clampFloat(r: FloatRect): FloatRect {
-  const w = Math.min(1, Math.max(MIN_FLOAT, Number.isFinite(r.w) ? r.w : 0.5));
-  const h = Math.min(1, Math.max(MIN_FLOAT, Number.isFinite(r.h) ? r.h : 0.5));
+  const minW = areaSize.w > 0 ? Math.min(1, Math.max(MIN_FLOAT, MIN_WINDOW_W / areaSize.w)) : MIN_FLOAT;
+  const minH = areaSize.h > 0 ? Math.min(1, Math.max(MIN_FLOAT, MIN_WINDOW_H / areaSize.h)) : MIN_FLOAT;
+  const w = Math.min(1, Math.max(minW, Number.isFinite(r.w) ? r.w : 0.5));
+  const h = Math.min(1, Math.max(minH, Number.isFinite(r.h) ? r.h : 0.5));
   const x = Math.min(1 - w, Math.max(0, Number.isFinite(r.x) ? r.x : 0));
   const y = Math.min(1 - h, Math.max(0, Number.isFinite(r.y) ? r.y : 0));
   return { x, y, w, h };
@@ -47,6 +55,12 @@ interface LayoutState {
   floats: Partial<Record<Persona, FloatMap>>;
   /** 手前に出す順（後ろほど手前。保存しない。FR-173） */
   zOrder: string[];
+  /** 最後に使った順の目印（大きいほど最近。保存しない）。領域が足りないとき、最も長く使っていないものから最小化する（FR-296） */
+  usedAt: Record<string, number>;
+  /** 使ったことを覚える（前面にする・再表示・操作） */
+  touch: (key: string) => void;
+  /** 閉じた（非表示にした）コンポーネント（ペルソナ別。保存する）。最小化と区別して一覧（FR-295）に出す */
+  closed: Partial<Record<Persona, string[]>>;
   setFloat: (key: string, r: FloatRect) => void;
   /** 自由配置のコンポーネントをまとめて置く（押し出しの結果。FR-173・FR-184）。渡したもの以外の自由配置は変えない */
   setFloats: (rects: FloatMap) => void;
@@ -177,6 +191,9 @@ export function isPinned(s: Pick<LayoutState, 'persona' | 'pinned'>, key: string
   return !!s.pinned[s.persona]?.[key];
 }
 
+/** 使った順の目印の時計（保存しない） */
+let useClock = 0;
+
 export const useLayout = create<LayoutState>()(
   persist(
     (set, get) => {
@@ -203,6 +220,9 @@ export const useLayout = create<LayoutState>()(
         persona: DEFAULT_PERSONA,
         floats: {},
         zOrder: [],
+        usedAt: {},
+        closed: {},
+        touch: (key) => set((s) => ({ usedAt: { ...s.usedAt, [key]: ++useClock } })),
         expanded: null,
         setFloat: (key, r) => set((s) => ({
           floats: { ...s.floats, [s.persona]: { ...(s.floats[s.persona] ?? {}), [key]: clampFloat(r) } },
@@ -252,7 +272,7 @@ export const useLayout = create<LayoutState>()(
           }
           return { views: { ...s.views, [s.persona]: cur }, screenView: { ...s.screenView, [s.persona]: { ...(s.screenView[s.persona] ?? {}), ...screen } } };
         }),
-        raise: (key) => set((s) => (s.zOrder[s.zOrder.length - 1] === key ? {} : { zOrder: [...s.zOrder.filter((k) => k !== key), key] })),
+        raise: (key) => set((s) => (s.zOrder[s.zOrder.length - 1] === key ? { usedAt: { ...s.usedAt, [key]: ++useClock } } : { zOrder: [...s.zOrder.filter((k) => k !== key), key], usedAt: { ...s.usedAt, [key]: ++useClock } })),
         setExpanded: (key) => set((s) => ({
           expanded: key,
           ...(key ? { maximized: null, minimized: { ...s.minimized, [s.persona]: (s.minimized[s.persona] ?? []).filter((k) => k !== key) } } : {}),
@@ -292,10 +312,22 @@ export const useLayout = create<LayoutState>()(
         hideComponent: (key) => {
           const r = get().floats[get().persona]?.[key];
           if (r) set((s) => ({ hiddenRects: { ...s.hiddenRects, [s.persona]: { ...(s.hiddenRects[s.persona] ?? {}), [key]: r } } }));
+          set((s) => ({ closed: { ...s.closed, [s.persona]: [...new Set([...(s.closed[s.persona] ?? []), key])] } }));
           dropFloat(key); if (get().expanded === key) set({ expanded: null }); apply((l) => hide(l, key), get().maximized === key ? null : get().maximized, false);
         },
         showComponent: (key) => {
           const s = get();
+          set((st) => ({ closed: { ...st.closed, [st.persona]: (st.closed[st.persona] ?? []).filter((k) => k !== key) }, usedAt: { ...st.usedAt, [key]: ++useClock } }));
+          // 領域が足りなくなったら、最も長く使っていない（ピン止めしていない）ものを最小化して収める。閉じず、縮めない（FR-296 AC-801）
+          const fit = () => {
+            const st = get();
+            if (areaSize.w <= 0) return;
+            const cur = effectiveLayout(st);
+            const { layout, dropped } = makeRoom(cur, areaSize.w, { protect: [key], pinned: new Set(Object.keys(st.pinned[st.persona] ?? {})), usedAt: st.usedAt });
+            if (dropped.length === 0) return;
+            for (const k of dropped) dropFloat(k);
+            set({ layouts: { ...st.layouts, [st.persona]: layout } });
+          };
           // 手で動かしたものも、ピン止めもなく、自動配置が働いているときは、新しく置くものを含めて階層に基づいて組み直す（FR-243）。それ以外は、既存の配置を動かさず足す。
           // 表示するコンポーネントが多くなりすぎる（各コンポーネントが小さくなる）ときと、このペルソナの構成にないコンポーネント（ナビなどで別に開いた画面）は、従来どおり末尾へ足す
           if (!s.autoOff[s.persona] && !userArranged(s) && !isVisible(effectiveLayout(s), key) && personaKeys(s.persona).includes(key)) {
@@ -303,10 +335,11 @@ export const useLayout = create<LayoutState>()(
             const keys = [...personaKeys(s.persona), ...keysOf(cur), key].filter((k, i, a) => a.indexOf(k) === i && (k === key || isVisible(cur, k)));
             const next = keys.length <= MAX_AUTO_COMPONENTS ? autoTree(keys, classify(s.persona, keys, s.tiers[s.persona])) : null;
             // 上限を超えてタブにまとめられたときも、いま見せるものを前面にする
-            if (next) { set({ layouts: { ...s.layouts, [s.persona]: activate(next, key) }, revealed: { key } }); return; }
+            if (next) { set({ layouts: { ...s.layouts, [s.persona]: activate(next, key) }, revealed: { key } }); fit(); return; }
           }
           apply((l) => show(l, key), undefined, false);
           set({ revealed: { key } });
+          fit();
         },
         moveComponent: (key, dir) => { if (!isPinned(get(), key)) apply((l) => move(l, key, dir)); },
         toggleDirection: (key) => { if (!isPinned(get(), key)) apply((l) => toggleDirection(l, key)); },
@@ -318,7 +351,7 @@ export const useLayout = create<LayoutState>()(
           set((st) => ({ manual: { ...st.manual, [st.persona]: [...new Set([...(st.manual[st.persona] ?? []), ...keys])] } }));
           apply((x) => resize(x, path, index, delta));
         },
-        activateTab: (key) => apply((l) => activate(l, key), undefined, false),
+        activateTab: (key) => { get().touch(key); apply((l) => activate(l, key), undefined, false); },
         setMaximized: (maximized) => set((st) => ({
           maximized,
           ...(maximized ? { expanded: null } : {}),
@@ -332,6 +365,8 @@ export const useLayout = create<LayoutState>()(
           delete manual[s.persona];
           const minimized = { ...s.minimized };
           delete minimized[s.persona];
+          const closed = { ...s.closed };
+          delete closed[s.persona];
           const floats = { ...s.floats };
           delete floats[s.persona];
           // 既定のレイアウトは固定なし（FR-215）
@@ -349,7 +384,7 @@ export const useLayout = create<LayoutState>()(
           delete moved[s.persona];
           const userLaid = { ...s.userLaid };
           delete userLaid[s.persona];
-          return { layouts, manual, minimized, floats, pinned, views, screenView, tiers, moved, userLaid, navMin: false, maximized: null, expanded: null, resetCount: s.resetCount + 1 };
+          return { layouts, manual, minimized, closed, floats, pinned, views, screenView, tiers, moved, userLaid, navMin: false, maximized: null, expanded: null, resetCount: s.resetCount + 1 };
         }),
         tiers: {},
         setTier: (key, tier) => set((s) => {
@@ -415,7 +450,7 @@ export const useLayout = create<LayoutState>()(
     {
       name: 'edb.layout',
       version: 1,
-      partialize: (s) => ({ persona: s.persona, floats: s.floats, pinned: s.pinned, views: s.views, screenView: s.screenView, zOrder: s.zOrder, layouts: s.layouts, autoSize: s.autoSize, manual: s.manual, minimized: s.minimized, navMin: s.navMin, tiers: s.tiers, autoOff: s.autoOff, moved: s.moved, userLaid: s.userLaid }),
+      partialize: (s) => ({ persona: s.persona, floats: s.floats, pinned: s.pinned, views: s.views, screenView: s.screenView, zOrder: s.zOrder, layouts: s.layouts, autoSize: s.autoSize, manual: s.manual, minimized: s.minimized, closed: s.closed, navMin: s.navMin, tiers: s.tiers, autoOff: s.autoOff, moved: s.moved, userLaid: s.userLaid }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Pick<LayoutState, 'persona' | 'floats' | 'pinned' | 'views' | 'screenView' | 'zOrder' | 'layouts' | 'autoSize' | 'manual' |         'minimized' | 'navMin' | 'tiers' | 'autoOff' | 'moved' | 'userLaid'>>;
                 const tiers: Partial<Record<Persona, TierOverrides>> = {};
@@ -440,6 +475,11 @@ export const useLayout = create<LayoutState>()(
           if (Array.isArray(v) && v.every((k) => typeof k === 'string')) minimized[name] = v as string[];
         }
         const persona = PERSONAS.includes(p.persona as Persona) ? (p.persona as Persona) : current.persona;
+        const closed: Partial<Record<Persona, string[]>> = {};
+        for (const name of PERSONAS) {
+          const v = ((p as { closed?: Record<string, unknown> }).closed)?.[name];
+          if (Array.isArray(v) && v.every((k) => typeof k === 'string')) closed[name] = v as string[];
+        }
         const layouts: Partial<Record<Persona, Layout>> = {};
         for (const name of PERSONAS) {
           const v = (p.layouts as Record<string, unknown> | undefined)?.[name];
@@ -483,7 +523,7 @@ export const useLayout = create<LayoutState>()(
           if (isViewSetting(sv)) screenView[name] = sv;
         }
         const zOrder = Array.isArray(p.zOrder) && p.zOrder.every((k) => typeof k === 'string') ? p.zOrder : [];
-        return { ...current, tiers, autoOff, moved, userLaid, floats, pinned, views, screenView, zOrder, persona, layouts, manual, minimized, navMin: p.navMin === true, autoSize: typeof p.autoSize === 'boolean' ? p.autoSize : true };
+        return { ...current, tiers, autoOff, moved, userLaid, floats, pinned, views, screenView, zOrder, persona, layouts, manual, minimized, closed, navMin: p.navMin === true, autoSize: typeof p.autoSize === 'boolean' ? p.autoSize : true };
       },
     },
   ),

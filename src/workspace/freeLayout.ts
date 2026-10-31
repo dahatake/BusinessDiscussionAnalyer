@@ -1,7 +1,7 @@
 // 自由配置の押し出し・再配置の純粋なモデル（FR-173・FR-184）。React に依存しない。
 // 動かしているコンポーネント（pinned）に重なったものを、重ならない位置へ移す（動かせなければ縮める）。
 // どうしても解けないときは、全体を格子に並べ直して、重なりが残らないことを保証する。
-import { MIN_COMPONENT_WIDTH } from './autosize';
+import { MIN_WINDOW_H, MIN_WINDOW_W } from './windowLimits';
 
 export interface PxRect { x: number; y: number; w: number; h: number }
 export type PxMap = Record<string, PxRect>;
@@ -10,8 +10,8 @@ export interface Bounds { w: number; h: number }
 /** これ未満の重なり（面積 px²）は、重なりとして扱わない（描画の丸め誤差） */
 const EPS = 1;
 /** 縮めてよい最小の大きさ（px） */
-export const MIN_W = 160;
-export const MIN_H = 120;
+export const MIN_W = MIN_WINDOW_W;
+export const MIN_H = MIN_WINDOW_H;
 
 export const overlapArea = (a: PxRect, b: PxRect): number =>
   Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
@@ -73,7 +73,7 @@ export function packGrid(rects: PxMap, b: Bounds): PxMap {
   const n = keys.length;
   if (n === 0) return {};
   // 列の幅は最小の幅（PARAM-034）を下回らない。下回ると見出しの操作（「ビュー」など）が隠れる「狭い」コンポーネントになる（FR-150 AC-259・FR-237 AC-557）
-  const maxCols = Math.max(1, Math.floor(b.w / MIN_COMPONENT_WIDTH));
+  const maxCols = Math.max(1, Math.floor(b.w / MIN_W));
   const cols = Math.min(maxCols, Math.max(1, Math.round(Math.sqrt((n * b.w) / Math.max(b.h, 1)))));
   const rows = Math.ceil(n / cols);
   const cy = (k: string) => rects[k]!.y + rects[k]!.h / 2;

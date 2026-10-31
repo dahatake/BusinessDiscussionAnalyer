@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { clampInto, hasOverlap, packGrid, placeNew, resolveAround, resolveOverlaps, type PxMap } from '../../src/workspace/freeLayout';
 import { MIN_COMPONENT_WIDTH } from '../../src/workspace/autosize';
 
-const B = { w: 1000, h: 800 };
-/** 2 x 2 の格子（作業領域を隙間なく埋める既定の配置） */
+const B = { w: 1600, h: 1200 };
+/** 2 x 2 の格子（作業領域を隙間なく埋める既定の配置。各 800 x 600 で、最小の大きさ PARAM-134・PARAM-135 の 2 倍以上） */
 const grid = (): PxMap => ({
-  a: { x: 0, y: 0, w: 500, h: 400 }, b: { x: 500, y: 0, w: 500, h: 400 },
-  c: { x: 0, y: 400, w: 500, h: 400 }, d: { x: 500, y: 400, w: 500, h: 400 },
+  a: { x: 0, y: 0, w: 800, h: 600 }, b: { x: 800, y: 0, w: 800, h: 600 },
+  c: { x: 0, y: 600, w: 800, h: 600 }, d: { x: 800, y: 600, w: 800, h: 600 },
 });
 
 describe('FR-184 AC-390 押し出し', () => {
@@ -26,7 +26,7 @@ describe('FR-184 AC-390 押し出し', () => {
     const keys = Object.keys(cur);
     for (let i = 0; i < 40; i++) {
       const k = keys[i % keys.length]!;
-      const t = { x: (i * 137) % 700, y: (i * 91) % 500, w: cur[k]!.w, h: cur[k]!.h };
+      const t = { x: (i * 137) % 900, y: (i * 91) % 600, w: cur[k]!.w, h: cur[k]!.h };
       cur = resolveOverlaps({ ...cur, [k]: t }, k, B);
       // 置いたものは、置いた位置（領域内に収めたもの）から動かない
       expect(cur[k], `${i} 回目に置いた位置`).toEqual(clampInto(t, B));
@@ -75,8 +75,9 @@ describe('FR-184 AC-390 押し出し', () => {
 describe('FR-173 AC-348 作業領域の内側', () => {
   // FR-173 AC-348
   it('FR-173 AC-348 領域の外へ置こうとしても、内側に収まる', () => {
-    expect(clampInto({ x: 900, y: 700, w: 300, h: 300 }, B)).toEqual({ x: 700, y: 500, w: 300, h: 300 });
-    expect(clampInto({ x: -50, y: -50, w: 100, h: 100 }, B)).toEqual({ x: 0, y: 0, w: 100, h: 100 });
+    const b0 = { w: 1000, h: 800 };
+    expect(clampInto({ x: 900, y: 700, w: 300, h: 300 }, b0)).toEqual({ x: 700, y: 500, w: 300, h: 300 });
+    expect(clampInto({ x: -50, y: -50, w: 100, h: 100 }, b0)).toEqual({ x: 0, y: 0, w: 100, h: 100 });
   });
 });
 
@@ -100,21 +101,22 @@ describe('FR-237 AC-557 格子への並べ直しでも見出しの操作が隠�
 describe('FR-228 AC-529 手で変えた大きさは押し出しで上書きしない', () => {
   // FR-228 AC-529（FR-224）: ほかのコンポーネントを動かして押し出しても、手で大きさを変えたもの（keep）は大きさを保ったまま動く
   it('FR-228 AC-529 ピン止めを避けてほかを動かしても、手で大きさを変えたものの幅と高さは変わらない', () => {
-    const b = { w: 1380, h: 300 };
+    // FR-296: 最小の大きさ（PARAM-134・PARAM-135）以上の大きさで始める
+    const b = { w: 1500, h: 760 };
     const start: PxMap = {
-      priority: { x: 0, y: 0, w: 690, h: 146.34 },
-      ranking: { x: 698, y: 0, w: 414, h: 146.34 },
-      matrix: { x: 0, y: 153.6, w: 384, h: 120 },
-      canvas: { x: 422, y: 153.6, w: 240, h: 109.75 },
-      summary: { x: 670, y: 153.6, w: 240, h: 109.75 },
-      kpi: { x: 918, y: 153.6, w: 240, h: 109.75 },
+      priority: { x: 0, y: 0, w: 720, h: 250 },
+      ranking: { x: 728, y: 0, w: 420, h: 250 },
+      matrix: { x: 0, y: 258, w: 384, h: 240 },
+      canvas: { x: 392, y: 258, w: 360, h: 240 },
+      summary: { x: 760, y: 258, w: 360, h: 240 },
+      kpi: { x: 1128, y: 258, w: 360, h: 240 },
     };
-    const r = resolveAround({ ...start, ranking: { x: 778, y: 60, w: 414, h: 146.34 } }, 'ranking', b, new Set(['priority']), new Set(['matrix']));
+    const r = resolveAround({ ...start, ranking: { x: 778, y: 60, w: 420, h: 250 } }, 'ranking', b, new Set(['priority']), new Set(['matrix']));
     expect(r).not.toBeNull();
     expect(hasOverlap(r!)).toBe(false);
     expect(r!.priority).toEqual(start.priority);
     expect(r!.matrix!.w).toBe(384);
-    expect(r!.matrix!.h).toBe(120);
+    expect(r!.matrix!.h).toBe(240);
   });
 
   // FR-228 AC-529: 大きさを保てる場所がまったくないときだけ、従来どおり縮めて重なりを残さない

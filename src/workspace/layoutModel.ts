@@ -293,6 +293,9 @@ export const MAX_DETAIL = 3;
 /** 主役が占める幅の割合（主役の行の中）と、主役の行が占める高さの割合 */
 const PRIMARY_WIDTH = 0.62;
 const TOP_HEIGHT = 0.7;
+/** 全体が少ないとき（主役 + 残り）の形に使う全体の数の上限と、主役と詳細だけのとき主役が占める高さの割合（FR-296） */
+const COMPACT_MAX = 4;
+const COMPACT_PRIMARY_HEIGHT = 0.55;
 
 /** 描く面のように、広さがほしい画面（同じ列の中の高さ・同じ行の中の幅の比に使う重み。載せていない画面は 1。SHOW_SHARE と同じ考え方）。重みが 1 より大きい補助は、主役の右に専用の列を持つ */
 export const STACK_WEIGHT: Readonly<Record<string, number>> = { whiteboard: 3 };
@@ -315,6 +318,17 @@ function detailRows(keys: readonly string[]): LayoutNode {
  * ペルソナの既定のレイアウト（§7）と、自動配置（autoLayout.autoTree）が同じ形を使う。
  */
 export function tierTree(primary: string, supporting: readonly string[], detail: readonly string[]): LayoutNode {
+  // 全体が 4 つ以内で詳細を含むときは、主役を左の列の全体（最大の領域）に置き、残りを右の列に縦に並べる（FR-296: 各コンポーネントが最小の幅・高さ以上で読める。
+  // 主役の右の列に積むので、必要な高さは 残りの数 × PARAM-135）。残りが 1 つ（主役と詳細だけ）のときは、主役の下に置く
+  if (detail.length > 0 && 1 + supporting.length + detail.length <= COMPACT_MAX && [...supporting, ...detail].every((k) => (STACK_WEIGHT[k] ?? 1) <= 1)) {
+    const others = [...supporting, ...detail];
+    if (others.length === 1) return split('col', [leaf(primary), leaf(others[0]!)], [COMPACT_PRIMARY_HEIGHT, 1 - COMPACT_PRIMARY_HEIGHT]);
+    if (others.length === 2) return split('row', [leaf(primary), split('col', others.map((k) => leaf(k)))], [PRIMARY_WIDTH, 1 - PRIMARY_WIDTH]);
+    // 4 つ: 2 列 × 2 行。左の列に主役とその下の詳細、右の列に補助（足りなければ残りの詳細）を縦に置く。主役は左上で最大の領域のまま
+    const left = split('col', [leaf(primary), leaf(detail[0]!)], [COMPACT_PRIMARY_HEIGHT, 1 - COMPACT_PRIMARY_HEIGHT]);
+    const right = [...supporting, ...detail.slice(1)];
+    return split('row', [left, split('col', right.map((k) => leaf(k)))], [PRIMARY_WIDTH, 1 - PRIMARY_WIDTH]);
+  }
   const wide = supporting.filter((k) => (STACK_WEIGHT[k] ?? 1) > 1);
   const rest = supporting.filter((k) => !wide.includes(k));
   let top: LayoutNode;
@@ -333,13 +347,14 @@ export function tierTree(primary: string, supporting: readonly string[], detail:
 
 /** ペルソナ別の既定のレイアウト（要求定義書 §7）。情報の階層（FR-244）の配置と同じ形: 主役が左上で最大、補助が右、詳細が下。 */
 export function defaultLayout(persona: Persona): Layout {
+  // 同時に表示するコンポーネントは MAX_DEFAULT_VISIBLE（PARAM-136）個以内。収まらない分は最小化して一覧（FR-295）に残す（FR-296・FR-112 の改訂）
   switch (persona) {
-    case '経営層': // 主領域に 2×2 マトリクス、右にサマリー・KPI/OKR・ランキング表
-      return tierTree('matrix', ['summary', 'kpi-okr', 'ranking'], []);
-    case '事業部門': // 主領域に課題-解決策分析、右に議論ツリーと KPI/OKR、下にガントと一覧表（FR-110 AC-135: リセット後も絞り込みの入力欄が残る）
-      return tierTree('issue-solution', ['discussion-tree', 'kpi-okr'], ['gantt', 'table']);
-    case 'IT': // 主領域にアーキテクチャ図、右にナレッジグラフと KPI/OKR、下に製品の一覧
-      return tierTree('architecture', ['knowledge-graph', 'kpi-okr'], ['products']);
+    case '経営層': // 主領域に 2×2 マトリクス、右にサマリー・ランキング表（KPI/OKR は最小化）
+      return tierTree('matrix', ['summary', 'ranking'], []);
+    case '事業部門': // 主領域に課題-解決策分析、右に議論ツリー、下にガントと一覧表（A-30。KPI/OKR は最小化。FR-110 AC-135: リセット後も絞り込みの入力欄が残る）
+      return tierTree('issue-solution', ['discussion-tree'], ['gantt', 'table']);
+    case 'IT': // 主領域にアーキテクチャ図、右にナレッジグラフ、下に製品の一覧（KPI/OKR は最小化）
+      return tierTree('architecture', ['knowledge-graph'], ['products']);
     case '現場': // 主領域に Twin ビュー（3D デジタルツイン。Q-062 A）、右に KPI/OKR、下にガント
       return tierTree('twin-view', ['kpi-okr'], ['gantt']);
   }

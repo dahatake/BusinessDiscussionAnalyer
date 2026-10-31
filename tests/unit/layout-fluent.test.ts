@@ -196,9 +196,9 @@ describe('FR-143 AC-228 手動の大きさと既定へ戻す（ストア）', ()
     const { useLayout, storage } = await fresh();
     useLayout.getState().setPersona('事業部門');
     useLayout.getState().resizeByKeys('issue-solution', 'discussion-tree', 0.05);
-    // 既定は情報の階層の配置（FR-244）: 主役の右に補助（議論ツリーと KPI/OKR）の列があり、境界の両側（主役と、補助の列の全体）が手動になる
-    expect(new Set(useLayout.getState().manual['事業部門'])).toEqual(new Set(['issue-solution', 'discussion-tree', 'kpi-okr']));
-    expect(useLayout.getState().manual['事業部門']).not.toContain('gantt');
+    // 既定は情報の階層の配置（FR-244。FR-296 で 4 個以内の 2 列 × 2 行）: 左の列（主役とガント）と右の列（議論ツリーと一覧表）の境界で、両側の全体が手動になる
+    expect(new Set(useLayout.getState().manual['事業部門'])).toEqual(new Set(['issue-solution', 'gantt', 'discussion-tree', 'table']));
+    expect(useLayout.getState().manual['事業部門']).not.toContain('kpi-okr');
     useLayout.getState().setAutoSize(false);
     const saved = JSON.parse(storage.getItem('edb.layout')!);
     expect(saved.state.autoSize).toBe(false);
