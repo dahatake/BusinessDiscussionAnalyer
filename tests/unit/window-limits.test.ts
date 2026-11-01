@@ -46,9 +46,10 @@ describe('FR-296 AC-800 既定のレイアウト', () => {
     }
   });
 
-  // FR-296 AC-800（FR-112 の改訂: 経営層 3・事業部門 4・IT 3。主役は変わらず最大）
-  it('FR-296 AC-800 経営層 3・事業部門 4・IT 3 個で、主役は左上の最大の領域のまま', () => {
-    expect(keysOf(defaultLayout('経営層'))).toEqual(['matrix', 'summary', 'ranking']);
+  // FR-296 AC-800（FR-112 の改訂: 経営層 4・事業部門 4・IT 3。主役は変わらず最大。FR-154 AC-273: 経営層は KPI/OKR を含む）
+  it('FR-296 AC-800 経営層 4・事業部門 4・IT 3 個で、主役は左上の最大の領域のまま', () => {
+    expect(keysOf(defaultLayout('経営層')).sort()).toEqual(['kpi-okr', 'matrix', 'ranking', 'summary']);
+    expect(keysOf(defaultLayout('経営層'))[0]).toBe('matrix');
     expect(keysOf(defaultLayout('事業部門')).sort()).toEqual(['discussion-tree', 'gantt', 'issue-solution', 'table']);
     expect(keysOf(defaultLayout('IT')).length).toBe(3);
     expect(keysOf(defaultLayout('IT'))[0]).toBe('architecture');

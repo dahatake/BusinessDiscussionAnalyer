@@ -57,6 +57,8 @@ interface LayoutState {
   zOrder: string[];
   /** 最後に使った順の目印（大きいほど最近。保存しない）。領域が足りないとき、最も長く使っていないものから最小化する（FR-296） */
   usedAt: Record<string, number>;
+  /** 領域が足りなくなって最小化した（木から外した）コンポーネント（ペルソナ別。保存しない）。画面は隠したまま残し、一覧から戻すとき状態を失わない（FR-296 AC-801） */
+  parked: Record<string, string[]>;
   /** 使ったことを覚える（前面にする・再表示・操作） */
   touch: (key: string) => void;
   /** 閉じた（非表示にした）コンポーネント（ペルソナ別。保存する）。最小化と区別して一覧（FR-295）に出す */
@@ -221,6 +223,7 @@ export const useLayout = create<LayoutState>()(
         floats: {},
         zOrder: [],
         usedAt: {},
+        parked: {},
         closed: {},
         touch: (key) => set((s) => ({ usedAt: { ...s.usedAt, [key]: ++useClock } })),
         expanded: null,
@@ -312,12 +315,12 @@ export const useLayout = create<LayoutState>()(
         hideComponent: (key) => {
           const r = get().floats[get().persona]?.[key];
           if (r) set((s) => ({ hiddenRects: { ...s.hiddenRects, [s.persona]: { ...(s.hiddenRects[s.persona] ?? {}), [key]: r } } }));
-          set((s) => ({ closed: { ...s.closed, [s.persona]: [...new Set([...(s.closed[s.persona] ?? []), key])] } }));
+          set((s) => ({ closed: { ...s.closed, [s.persona]: [...new Set([...(s.closed[s.persona] ?? []), key])] }, parked: { ...s.parked, [s.persona]: (s.parked[s.persona] ?? []).filter((k) => k !== key) } }));
           dropFloat(key); if (get().expanded === key) set({ expanded: null }); apply((l) => hide(l, key), get().maximized === key ? null : get().maximized, false);
         },
         showComponent: (key) => {
           const s = get();
-          set((st) => ({ closed: { ...st.closed, [st.persona]: (st.closed[st.persona] ?? []).filter((k) => k !== key) }, usedAt: { ...st.usedAt, [key]: ++useClock } }));
+          set((st) => ({ closed: { ...st.closed, [st.persona]: (st.closed[st.persona] ?? []).filter((k) => k !== key) }, parked: { ...st.parked, [st.persona]: (st.parked[st.persona] ?? []).filter((k) => k !== key) }, usedAt: { ...st.usedAt, [key]: ++useClock } }));
           // 領域が足りなくなったら、最も長く使っていない（ピン止めしていない）ものを最小化して収める。閉じず、縮めない（FR-296 AC-801）
           const fit = () => {
             const st = get();
@@ -326,7 +329,7 @@ export const useLayout = create<LayoutState>()(
             const { layout, dropped } = makeRoom(cur, areaSize.w, { protect: [key], pinned: new Set(Object.keys(st.pinned[st.persona] ?? {})), usedAt: st.usedAt });
             if (dropped.length === 0) return;
             for (const k of dropped) dropFloat(k);
-            set({ layouts: { ...st.layouts, [st.persona]: layout } });
+            set({ layouts: { ...st.layouts, [st.persona]: layout }, parked: { ...st.parked, [st.persona]: [...new Set([...(st.parked[st.persona] ?? []), ...dropped])] } });
           };
           // 手で動かしたものも、ピン止めもなく、自動配置が働いているときは、新しく置くものを含めて階層に基づいて組み直す（FR-243）。それ以外は、既存の配置を動かさず足す。
           // 表示するコンポーネントが多くなりすぎる（各コンポーネントが小さくなる）ときと、このペルソナの構成にないコンポーネント（ナビなどで別に開いた画面）は、従来どおり末尾へ足す
