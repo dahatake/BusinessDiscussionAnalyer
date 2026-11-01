@@ -38,6 +38,25 @@ export function windowStates(input: WindowStateInput): Record<string, WindowStat
   return out;
 }
 
+/** 切替（Ctrl+Alt+PageDown／PageUp。FR-295 AC-798）の候補。閉じたものを除き、前面に近い順（前面が先頭） */
+export function switchOrder(states: Readonly<Record<string, WindowState>>, usedAt: Readonly<Record<string, number>>): string[] {
+  const keys = Object.keys(states).filter((k) => states[k] !== 'closed');
+  const rank = (k: string) => (states[k] === 'front' ? Infinity : usedAt[k] ?? 0);
+  return keys.map((k, i) => ({ k, i })).sort((a, b) => (rank(b.k) - rank(a.k)) || a.i - b.i).map((x) => x.k);
+}
+
+/** 切替の次の位置（PageDown＝奥へ進む、PageUp＝手前へ戻る。端で循環する） */
+export function nextSwitchIndex(index: number, count: number, dir: 'down' | 'up'): number {
+  if (count <= 0) return 0;
+  return (index + (dir === 'down' ? 1 : -1) + count) % count;
+}
+
+/** 切替のキー（Ctrl+Alt+PageDown／PageUp。macOS は ⌃⌥）。ほかのキー（Ctrl+Alt+方向・Enter）とは重ならない */
+export function switchKey(e: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }): 'down' | 'up' | null {
+  if (!e.ctrlKey || !e.altKey || e.shiftKey || e.metaKey) return null;
+  return e.key === 'PageDown' ? 'down' : e.key === 'PageUp' ? 'up' : null;
+}
+
 /** 表示中（前面・表示中）のコンポーネントの数 */
 export function shownCount(states: Readonly<Record<string, WindowState>>): number {
   return Object.values(states).filter((s) => s === 'front' || s === 'visible').length;

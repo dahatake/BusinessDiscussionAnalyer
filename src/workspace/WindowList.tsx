@@ -1,13 +1,13 @@
 // 開いているコンポーネントの一覧（FR-295。契約: tests/system/CONTRACT.md §34）。
 // 登録済みのコンポーネントを、状態（前面・表示中・最小化・閉じた）つきで 1 つずつ並べる。項目を押すと、最小化・閉じたものは前面に出し、表示中は前面にし、前面のものは最小化する。
 // FR-296: 既定のレイアウトに収まらないものは、閉じずに最小化として一覧に残す。
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Button, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { Checkmark16Regular, Eye16Regular, Subtract16Regular, Dismiss16Regular } from '@fluentui/react-icons';
 import type { ScreenDefinition } from '../screens/types';
 import { useLayout } from '../store/layout';
 import { keysOf, type Layout } from './layoutModel';
-import { WINDOW_STATE_LABEL, windowStates, type WindowState } from './windowStates';
+import { WINDOW_STATE_LABEL, nextSwitchIndex, switchKey, switchOrder, windowStates, type WindowState } from './windowStates';
 import { useT } from '../i18n';
 
 const useStyles = makeStyles({
@@ -52,8 +52,59 @@ export function WindowList({ screens, layout, minimized }: { screens: readonly S
       a.showComponent(key);
     }
   };
+  // 切替（Ctrl+Alt+PageDown／PageUp。FR-295 AC-798）。切替のキーを押している間だけ「切替の最中」で、その間の Esc は切替だけを取り消す
+  const live = useRef({ states, items, inTree });
+  live.current = { states, items, inTree };
+  const sw = useRef<{ origin: string | undefined; order: string[]; index: number; restored: Set<string>; wasMin: Set<string> } | null>(null);
+  useEffect(() => {
+    const end = () => { sw.current = null; };
+    const settle = (key: string) => { // 切替で一時的に復元したものは、通り過ぎるとき最小化に戻す
+      const cur = sw.current;
+      if (cur?.restored.has(key)) { useLayout.getState().setMinimized(key, true); cur.restored.delete(key); }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      const dir = switchKey(e);
+      if (dir) {
+        e.preventDefault(); e.stopPropagation();
+        const a = useLayout.getState();
+        if (!sw.current) {
+          const { states: st } = live.current;
+          const order = switchOrder(st, a.usedAt);
+          if (order.length < 2) return;
+          const origin = order.find((k) => st[k] === 'front');
+          sw.current = { origin, order, index: Math.max(0, origin ? order.indexOf(origin) : 0), restored: new Set(), wasMin: new Set() };
+        }
+        const cur = sw.current;
+        const prev = cur.order[cur.index];
+        cur.index = nextSwitchIndex(cur.index, cur.order.length, dir);
+        const key = cur.order[cur.index]!;
+        if (prev !== key) settle(prev!);
+        const st = live.current.states[key];
+        if (st === 'minimized') {
+          if (live.current.inTree.has(key)) { a.setMinimized(key, false); cur.restored.add(key); } else { a.showComponent(key); }
+        }
+        a.raise(key);
+        return;
+      }
+      if (e.key === 'Escape' && sw.current) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        const cur = sw.current;
+        for (const k of [...cur.restored]) settle(k);
+        if (cur.origin) { useLayout.getState().raise(cur.origin); }
+        sw.current = null;
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Control' || e.key === 'Alt') end(); };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', end);
+    return () => { window.removeEventListener('keydown', onKeyDown, true); window.removeEventListener('keyup', onKeyUp, true); window.removeEventListener('blur', end); };
+  }, []);
+  const frontKey = Object.keys(states).find((k) => states[k] === 'front');
+  const frontLabel = items.find((i) => i.key === frontKey)?.label;
   return (
     <div role="toolbar" aria-label={t('開いているコンポーネント')} data-testid="window-list" className={s.bar}>
+      <span aria-live="polite" aria-atomic="true" data-testid="window-list-front" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{frontLabel ? `${t('前面')}: ${t(frontLabel)}` : ''}</span>
       {items.map((it) => {
         const st = states[it.key] ?? 'closed';
         const name = `${t(it.label)} ${t(WINDOW_STATE_LABEL[st])}`;
