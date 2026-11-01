@@ -334,6 +334,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   const manualKeys = useLayout((st) => st.manual[st.persona]);
   const maximized = useLayout((st) => st.maximized);
   const usedAt = useLayout((st) => st.usedAt);
+  const parkedRaw = useLayout((st) => st.parked[st.persona]);
+  const parkedMap = parkedRaw ?? [];
   const snapMotion = useSnapMotion();
   const minimizedKeys = useLayout((st) => st.minimized[st.persona]);
   const minSet = useMemo(() => new Set(minimizedKeys ?? []), [minimizedKeys]);
@@ -402,15 +404,24 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     return () => ws.removeEventListener('scroll', onScroll);
   }, []);
   const wasMaximized = useRef(false);
+  const focusKeyRef = useRef<string | null>(null);
+  focusKeyRef.current = focusKey;
+  const focusBeforeMax = useRef<string | null>(null);
+  const maxPrev = useRef<string | null>(null);
+  const restoredByButton = useRef(false);
   useEffect(() => {
     const ws = rootRef.current?.closest('[data-testid="workspace"]');
     if (maximized === null) {
       if (wasMaximized.current && ws) ws.scrollTop = savedScroll.current;
       // 操作中の自動の拡大（FR-143）は一時的なものなので、没入表示から戻るときは外し、保存した位置・大きさ（AC-591）へ戻す（FR-297 AC-802）
-      if (wasMaximized.current && !compact) setFocusKey(null);
+      // 見出しの「通常表示」で戻すときは、最大化の前に操作中だった状態へ戻す（FR-149 AC-254: 最大化の前後で幅が変わらない）。Esc・一覧からの復帰は外す（FR-297 AC-802）
+      if (wasMaximized.current && !compact) setFocusKey(restoredByButton.current && focusBeforeMax.current === maxPrev.current ? focusBeforeMax.current : null);
+      restoredByButton.current = false;
       wasMaximized.current = false;
       return;
     }
+    if (!wasMaximized.current) focusBeforeMax.current = focusKeyRef.current;
+    maxPrev.current = maximized;
     wasMaximized.current = true;
     if (ws) ws.scrollTop = 0;
   }, [maximized]);
@@ -591,7 +602,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       visible: group.length === 1 || active === key,
       inTabs: group.length > 1,
       peers: keysOf(layout).filter((k) => !group.includes(k) && !pinSet.has(k)).map((k) => ({ key: k, label: byKey(k)?.label ?? k })),
-      toggleMaximize: () => actions().setMaximized(actions().maximized === key ? null : key),
+      toggleMaximize: () => { if (actions().maximized === key) restoredByButton.current = true; actions().setMaximized(actions().maximized === key ? null : key); },
       restore: () => actions().setMaximized(null),
       hide: () => a.hideComponent(key),
       move: (d) => {
@@ -1071,13 +1082,9 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   };
   if (layout) collect(layout);
   outKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
-  // 領域が足りず最小化（FR-296）したコンポーネントは、閉じていない限り、見えない場所に描いたままにして、内容（絞り込み・入力中など）を失わない。
-  // いちど表示したもの（このペルソナ）だけを対象にする。見えない・読み上げない（display:none）ので、同時に表示する数（PARAM-136）には数えない
-  const closedKeys = useLayout((st) => st.closed[st.persona]);
-  const everShown = useRef<{ persona: string; keys: Set<string> }>({ persona, keys: new Set() });
-  if (everShown.current.persona !== persona) everShown.current = { persona, keys: new Set() };
-  for (const k of groups.keys()) everShown.current.keys.add(k);
-  const parkedKeys = [...everShown.current.keys].filter((k) => !groups.has(k) && !(closedKeys ?? []).includes(k) && !!byKey(k)?.component && !byKey(k)?.modal);
+  // 領域が足りなくなって最小化したもの（木の外）は、隠したまま残す（一覧から戻すとき、状態と最新の内容を保つ。FR-296 AC-801）
+  const parkedKeys = parkedMap.filter((k) => !groups.has(k) && !!byKey(k)?.component);
+  parkedKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
 
   // 見出しのメニューの操作を、コマンドパレットからも実行できるようにする（操作中のコンポーネントが対象。NFR-UX-018 AC-481・FR-215 AC-494）
   const lastPaneKey = useRef<string | null>(null);
@@ -1430,7 +1437,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       if (k) {
         focusTimer.current = window.setTimeout(() => {
           focusTimer.current = null;
-          if (!expandedRef.current) setFocusKey(k);
+          // 没入表示の最中・復帰の後に遅れて発火して、FR-143 の拡大が再び掛からないようにする（FR-297）
+          if (!expandedRef.current && maxNowRef.current === null) setFocusKey(k);
         }, POINTER_FOCUS_DELAY_MS);
         focusTimerKey.current = k;
       }
@@ -1457,6 +1465,11 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       window.removeEventListener('pointercancel', up, true);
     };
   }, []);
+  // 没入表示の切り替わり（最大化・復帰）で、遅れて予約された操作中の拡大は捨てる（FR-297）
+  useEffect(() => {
+    pendingFocus.current = null;
+    if (focusTimer.current !== null) { window.clearTimeout(focusTimer.current); focusTimer.current = null; }
+  }, [maximized]);
   const onFocusCapture = (e: FocusEvent<HTMLDivElement>) => {
     lastFocused.current = e.target as HTMLElement;
     for (let n: Element | null = e.target as Element; n && n !== e.currentTarget; n = n.parentElement) {
@@ -1640,20 +1653,16 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
           <Button size="small" appearance="subtle" onClick={() => setAssist(null)}>{t('閉じる')}</Button>
         </div>
       ) : null}
-      {[
-        ...[...groups.entries()].map(([key, g]) => ({ key, tabs: g.tabs, active: g.active })),
-        // 表示していない（タブの非前面と同じ）扱いで渡す。同じ配列に置き、表示との行き来で再マウントしない
-        ...parkedKeys.map((key) => ({ key, tabs: [key, `${key}:parked`], active: `${key}:parked` })),
-      ].map(({ key, tabs, active }) => {
-        const Screen = byKey(key)?.component;
-        if (!Screen) return null;
-        return createPortal(<PanePortalBody Screen={Screen} info={stablePane(key, tabs, active)} />, hostOf(key), key);
-      })}
       {parkedKeys.length > 0 ? (
-        <div data-testid="parked-components" aria-hidden style={{ display: 'none' }}>
+        <div hidden aria-hidden data-testid="parked-windows">
           {parkedKeys.map((k) => <Slot key={k} host={hostOf(k)} hidden />)}
         </div>
       ) : null}
+      {[...groups.entries()].map(([key, g]) => {
+        const Screen = byKey(key)?.component;
+        if (!Screen) return null;
+        return createPortal(<PanePortalBody Screen={Screen} info={stablePane(key, g.tabs, g.active)} />, hostOf(key), key);
+      })}
     </div>
   );
 }

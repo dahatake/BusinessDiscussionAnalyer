@@ -35,6 +35,7 @@ export function isNarrowPane(width: number): boolean {
  *  見出しの操作に「ビュー」ボタン（文字で現在の表示を示す。FR-217・FR-218）が加わった分（約 60px）だけ、360px から広げた */
 const COMPACT_PANE_PX = 420;
 
+const HOVER_SETTLE_MS = 600;
 const useStyles = makeStyles({
   // 外枠（ワークスペースの外では従来どおりの幅と余白）
   root: { display: 'flex', flexDirection: 'column', maxWidth: '960px' },
@@ -180,6 +181,8 @@ export function Panel({ testId, title, description, maxWidth, children }: PanelP
   const [focused, setFocused] = useState(false);
   // ポインターを重ねている間も、見出しの操作を出す（FR-298 AC-805・AC-808: ロールへの割り当て・最大化をホバーから操作できる）
   const [hovered, setHovered] = useState(false);
+  // 表示した直後（配置が落ち着く前）にポインターの下へ入っただけのものは、重ねたものとして扱わない（動かしていないポインターで見出しの文字が出入りしない）
+  const mountedAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
   const [narrow, setNarrow] = useState(false);
   const [compact, setCompact] = useState(false);
   const minimized = pane?.minimized === true;
@@ -229,7 +232,8 @@ export function Panel({ testId, title, description, maxWidth, children }: PanelP
       ref={ref}
       onFocus={onFocus}
       onBlur={onBlur}
-      onMouseEnter={pane ? () => setHovered(true) : undefined}
+      onMouseEnter={pane ? (e) => { if (e.movementX !== 0 || e.movementY !== 0 || performance.now() - mountedAt.current > HOVER_SETTLE_MS) setHovered(true); } : undefined}
+      onMouseMove={pane && !hovered ? (e) => { if (e.movementX !== 0 || e.movementY !== 0 || performance.now() - mountedAt.current > HOVER_SETTLE_MS) setHovered(true); } : undefined}
       onMouseLeave={pane ? () => setHovered(false) : undefined}
       className={mergeClasses(s.root, pane ? s.pane : undefined, pane && !pane.maximized ? (pane.front ? s.front : s.back) : undefined, pane?.maximized ? s.maximized : undefined, foldMotion, immersiveMotion)}
       style={maxWidth && !pane ? { maxWidth } : pane?.z !== undefined && !pane.maximized ? { position: 'relative', zIndex: pane.z } : undefined}
