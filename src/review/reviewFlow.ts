@@ -62,6 +62,8 @@ export interface ReviewDeps {
   usage: { check: () => UsageGate; count: (tokensIn: number, tokensOut?: number) => void };
   /** 送信前の確認（送る情報の種類と対象の一覧を示す）。取り消しで false */
   confirmSend: (targets: readonly ReviewTarget[]) => Promise<boolean>;
+  /** 実行できないと分かったとき、出していた確認を答えなしで閉じる */
+  dismissConfirm?: () => void;
   /** 種別「人」の確認（FR-219）。含まないときは呼ばれない */
   confirmPerson: () => Promise<{ allowed: boolean; reason?: string }>;
   request?: typeof requestReview;
@@ -80,13 +82,16 @@ export async function runReview(deps: ReviewDeps, all: readonly ReviewTarget[]):
   const targets = fitTargets(all.filter((t) => t.data.trim() !== ''));
   if (targets.length === 0) return { kind: 'blocked', text: tr('レビューの対象になるデータを持つコンポーネントがありません。') };
   if (!deps.consent) return { kind: 'blocked', text: foundryReasonText('consent') };
+  // 押下の直後に確認を同期的に出す（中継の設定の取得はそのあと。操作の前には要求しない）。実行できない状態なら確認を閉じて案内を出す
+  const pending = deps.confirmSend(targets);
+  const block = (text: string): ReviewOutcome => { deps.dismissConfirm?.(); return { kind: 'blocked', text }; };
   const v = await deps.view();
-  if (!v) return { kind: 'blocked', text: foundryReasonText('relay') };
-  if (!v.configured) return { kind: 'blocked', text: notConfiguredText() };
-  if (!v.enabled) return { kind: 'blocked', text: `${foundryReasonText('disabled')}${tr('設定画面で「実接続を有効にする」をオンにしてください。')}` };
+  if (!v) return block(foundryReasonText('relay'));
+  if (!v.configured) return block(notConfiguredText());
+  if (!v.enabled) return block(`${foundryReasonText('disabled')}${tr('設定画面で「実接続を有効にする」をオンにしてください。')}`);
   const gate = deps.usage.check();
-  if (!gate.allowed) return { kind: 'blocked', text: gate.reason };
-  if (!(await deps.confirmSend(targets))) return { kind: 'cancelled' };
+  if (!gate.allowed) return block(gate.reason);
+  if (!(await pending)) return { kind: 'cancelled' };
   if (deps.includesPerson) {
     const g = await deps.confirmPerson();
     if (!g.allowed) return { kind: 'blocked', text: g.reason ?? foundryReasonText('person-unconfirmed') };
