@@ -6,6 +6,9 @@ import { keysOf, type Layout } from './layoutModel';
 export type WindowState = 'front' | 'visible' | 'minimized' | 'closed';
 export const WINDOW_STATE_LABEL: Readonly<Record<WindowState, string>> = { front: '前面', visible: '表示中', minimized: '最小化', closed: '閉じた' };
 
+/** 没入表示（FR-297）で、最大化したコンポーネントの背面を暗くする割合（%）。PARAM-137 */
+export const IMMERSIVE_DIM_PERCENT = 60;
+
 export interface WindowStateInput {
   /** 一覧に載せるコンポーネントのキー（登録済みのもの）。並びはそのまま */
   keys: readonly string[];

@@ -10,12 +10,17 @@ import { keysOf, type Layout } from './layoutModel';
 import { WINDOW_STATE_LABEL, nextSwitchIndex, switchKey, switchOrder, windowStates, type WindowState } from './windowStates';
 import { useT } from '../i18n';
 
+/** 没入表示中の一覧の高さ（px）。最大化したコンポーネントの上端をこの分だけ下げる */
+export const WINDOW_LIST_HEIGHT_PX = 40;
+
 const useStyles = makeStyles({
   bar: {
     display: 'flex', flexWrap: 'nowrap', alignItems: 'center', columnGap: tokens.spacingHorizontalXS, overflowX: 'auto', flex: '0 0 auto',
     minHeight: '32px', paddingBlock: tokens.spacingVerticalXXS, paddingInline: tokens.spacingHorizontalS,
     borderBottom: `${tokens.strokeWidthThin} solid ${tokens.colorNeutralStroke2}`,
   },
+  // 没入表示（最大化）中も一覧を操作できるよう、最大化したコンポーネント（zIndex 900・1000）より手前に置く。最大化したコンポーネントは、この高さだけ内側に下げる（FR-297 AC-802）
+  barOver: { position: 'relative', zIndex: 1100, height: WINDOW_LIST_HEIGHT_PX + 'px', boxSizing: 'border-box', backgroundColor: tokens.colorNeutralBackground1 },
   item: { flex: '0 0 auto', minHeight: '24px', whiteSpace: 'nowrap' },
   front: { fontWeight: tokens.fontWeightSemibold },
   dim: { color: tokens.colorNeutralForeground3 },
@@ -33,6 +38,7 @@ export function WindowList({ screens, layout, minimized }: { screens: readonly S
   const t = useT();
   const closedKeys = useLayout((st) => st.closed[st.persona]);
   const usedAt = useLayout((st) => st.usedAt);
+  const immersive = useLayout((st) => st.maximized !== null);
   const items = useMemo(() => screens.filter((sc) => !!sc.component && !sc.modal), [screens]);
   const states = useMemo(
     () => windowStates({ keys: items.map((i) => i.key), layout, minimized, closed: new Set(closedKeys ?? []), usedAt }),
@@ -42,7 +48,8 @@ export function WindowList({ screens, layout, minimized }: { screens: readonly S
   const press = (key: string, state: WindowState) => {
     const a = useLayout.getState();
     if (state === 'front') {
-      if (inTree.has(key)) a.setMinimized(key, true);
+      if (a.maximized === key) a.setMaximized(null); // 没入表示からの復帰（FR-297 AC-802）
+      else if (inTree.has(key)) a.setMinimized(key, true);
     } else if (state === 'visible') {
       a.touch(key);
     } else if (inTree.has(key)) {
@@ -103,7 +110,7 @@ export function WindowList({ screens, layout, minimized }: { screens: readonly S
   const frontKey = Object.keys(states).find((k) => states[k] === 'front');
   const frontLabel = items.find((i) => i.key === frontKey)?.label;
   return (
-    <div role="toolbar" aria-label={t('開いているコンポーネント')} data-testid="window-list" className={s.bar}>
+    <div role="toolbar" aria-label={t('開いているコンポーネント')} data-testid="window-list" className={mergeClasses(s.bar, immersive ? s.barOver : undefined)}>
       <span aria-live="polite" aria-atomic="true" data-testid="window-list-front" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{frontLabel ? `${t('前面')}: ${t(frontLabel)}` : ''}</span>
       {items.map((it) => {
         const st = states[it.key] ?? 'closed';
