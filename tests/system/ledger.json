@@ -429,8 +429,15 @@
           "by": "test-designer",
           "change": "status -> not_run",
           "reason": "テスト拡張のため未実行へ"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-100",
@@ -1726,8 +1733,15 @@
           "by": "test-designer",
           "change": "status -> not_run",
           "reason": "テスト拡張のため未実行へ"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-149",
@@ -4144,8 +4158,15 @@
           "by": "test-designer",
           "change": "追加",
           "reason": "受入基準からケースを作成"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-238",
@@ -4996,8 +5017,15 @@
           "by": "test-designer",
           "change": "追加",
           "reason": "受入基準からケースを作成"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-289",
@@ -5021,8 +5049,15 @@
           "by": "test-designer",
           "change": "追加",
           "reason": "受入基準からケースを作成"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-290",
@@ -5495,8 +5530,15 @@
           "by": "test-designer",
           "change": "追加",
           "reason": "run 202610172040: 承認済みの system AC からケースを作成（実装前・not_run）"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-308",
@@ -6061,8 +6103,15 @@
           "by": "test-designer",
           "change": "追加",
           "reason": "run 202610192300 part 3/3: FR-238 AC-562（未実装・not_run）"
+        },
+        {
+          "at": "2026-11-01T18:31:18+09:00",
+          "by": "test-designer",
+          "change": "serial: None -> True",
+          "reason": "時間・fps の閾値計測が並列負荷で揺れるため単独実行（閾値は変更しない）"
         }
-      ]
+      ],
+      "serial": true
     },
     {
       "id": "E2E-328",
