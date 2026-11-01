@@ -600,7 +600,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       z: isFloat && zRank >= 0 ? 3 + zRank : undefined,
       minimized: minSet.has(key),
       toggleMinimize: () => a.setMinimized(key, !minSet.has(key)),
-      visible: group.length === 1 || active === key,
+      // 領域が足りず木の外に隠している（parked）ものは、見えていない扱い（詳細パネルの置き場などに数えない）
+      visible: (group.length === 1 || active === key) && !(parkedMap.includes(key) && !keysOf(layout).includes(key) && !outKeys.includes(key)),
       inTabs: group.length > 1,
       peers: keysOf(layout).filter((k) => !group.includes(k) && !pinSet.has(k)).map((k) => ({ key: k, label: byKey(k)?.label ?? k })),
       toggleMaximize: () => { if (actions().maximized === key) restoredByButton.current = true; actions().setMaximized(actions().maximized === key ? null : key); },
