@@ -898,7 +898,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         const at = { x: pr.x * b.w, y: pr.y * b.h, w: pr.w * b.w, h: pr.h * b.h };
         rects = resolveAround({ ...rects, [k]: at }, k, b, others) ?? resolveOverlaps({ ...rects, [k]: at }, k, b);
       } else {
-        const fixed = new Set([...pinSet].filter((p) => p in rects));
+        // ピン止めしたものと、利用者が手で動かしたものは、新しく置くもののために動かさない（FR-243 AC-585）
+        const fixed = new Set([...pinSet, ...(useLayout.getState().moved[useLayout.getState().persona] ?? [])].filter((p) => p in rects));
         // 非表示にする前の場所が空いていれば、そこへ戻す（ほかを動かさない。FR-243）。空いていなければ空きを探す
         const prev = useLayout.getState().hiddenRects[useLayout.getState().persona]?.[k];
         const back = prev ? clampInto({ x: prev.x * b.w, y: prev.y * b.h, w: prev.w * b.w, h: prev.h * b.h }, b) : null;
@@ -1070,6 +1071,13 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   };
   if (layout) collect(layout);
   outKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
+  // 領域が足りず最小化（FR-296）したコンポーネントは、閉じていない限り、見えない場所に描いたままにして、内容（絞り込み・入力中など）を失わない。
+  // いちど表示したもの（このペルソナ）だけを対象にする。見えない・読み上げない（display:none）ので、同時に表示する数（PARAM-136）には数えない
+  const closedKeys = useLayout((st) => st.closed[st.persona]);
+  const everShown = useRef<{ persona: string; keys: Set<string> }>({ persona, keys: new Set() });
+  if (everShown.current.persona !== persona) everShown.current = { persona, keys: new Set() };
+  for (const k of groups.keys()) everShown.current.keys.add(k);
+  const parkedKeys = [...everShown.current.keys].filter((k) => !groups.has(k) && !(closedKeys ?? []).includes(k) && !!byKey(k)?.component && !byKey(k)?.modal);
 
   // 見出しのメニューの操作を、コマンドパレットからも実行できるようにする（操作中のコンポーネントが対象。NFR-UX-018 AC-481・FR-215 AC-494）
   const lastPaneKey = useRef<string | null>(null);
@@ -1632,11 +1640,20 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
           <Button size="small" appearance="subtle" onClick={() => setAssist(null)}>{t('閉じる')}</Button>
         </div>
       ) : null}
-      {[...groups.entries()].map(([key, g]) => {
+      {[
+        ...[...groups.entries()].map(([key, g]) => ({ key, tabs: g.tabs, active: g.active })),
+        // 表示していない（タブの非前面と同じ）扱いで渡す。同じ配列に置き、表示との行き来で再マウントしない
+        ...parkedKeys.map((key) => ({ key, tabs: [key, `${key}:parked`], active: `${key}:parked` })),
+      ].map(({ key, tabs, active }) => {
         const Screen = byKey(key)?.component;
         if (!Screen) return null;
-        return createPortal(<PanePortalBody Screen={Screen} info={stablePane(key, g.tabs, g.active)} />, hostOf(key), key);
+        return createPortal(<PanePortalBody Screen={Screen} info={stablePane(key, tabs, active)} />, hostOf(key), key);
       })}
+      {parkedKeys.length > 0 ? (
+        <div data-testid="parked-components" aria-hidden style={{ display: 'none' }}>
+          {parkedKeys.map((k) => <Slot key={k} host={hostOf(k)} hidden />)}
+        </div>
+      ) : null}
     </div>
   );
 }
