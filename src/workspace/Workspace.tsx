@@ -909,7 +909,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         const at = { x: pr.x * b.w, y: pr.y * b.h, w: pr.w * b.w, h: pr.h * b.h };
         rects = resolveAround({ ...rects, [k]: at }, k, b, others) ?? resolveOverlaps({ ...rects, [k]: at }, k, b);
       } else {
-        const fixed = new Set([...pinSet].filter((p) => p in rects));
+        // ピン止めしたものと、利用者が手で動かしたものは、新しく置くもののために動かさない（FR-243 AC-585）
+        const fixed = new Set([...pinSet, ...(useLayout.getState().moved[useLayout.getState().persona] ?? [])].filter((p) => p in rects));
         // 非表示にする前の場所が空いていれば、そこへ戻す（ほかを動かさない。FR-243）。空いていなければ空きを探す
         const prev = useLayout.getState().hiddenRects[useLayout.getState().persona]?.[k];
         const back = prev ? clampInto({ x: prev.x * b.w, y: prev.y * b.h, w: prev.w * b.w, h: prev.h * b.h }, b) : null;
