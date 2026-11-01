@@ -349,11 +349,11 @@ export function tierTree(primary: string, supporting: readonly string[], detail:
 export function defaultLayout(persona: Persona): Layout {
   // 同時に表示するコンポーネントは MAX_DEFAULT_VISIBLE（PARAM-136）個以内。収まらない分は最小化して一覧（FR-295）に残す（FR-296・FR-112 の改訂）
   switch (persona) {
-    case '経営層': // 主領域に 2×2 マトリクス、右にサマリー・ランキング表（KPI/OKR は最小化）
-      return tierTree('matrix', ['summary', 'ranking'], []);
-    case '事業部門': // 主領域に課題-解決策分析、右に議論ツリー、下にガントと一覧表（A-30。KPI/OKR は最小化。FR-110 AC-135: リセット後も絞り込みの入力欄が残る）
+    case '経営層': // 主領域に 2×2 マトリクス、右にサマリーと KPI/OKR（FR-154 AC-273）、主領域の下にランキング表（2 列 × 2 行。FR-296）
+      return tierTree('matrix', ['summary', 'kpi-okr'], ['ranking']);
+    case '事業部門': // 主領域に課題-解決策分析、右に議論ツリー、下にガントと一覧表（A-30。KPI/OKR は最小化して一覧に残す。FR-110 AC-135: リセット後も絞り込みの入力欄が残る）
       return tierTree('issue-solution', ['discussion-tree'], ['gantt', 'table']);
-    case 'IT': // 主領域にアーキテクチャ図、右にナレッジグラフ、下に製品の一覧（KPI/OKR は最小化）
+    case 'IT': // 主領域にアーキテクチャ図、右にナレッジグラフ、下に製品の一覧（KPI/OKR は、構成が少ないときの補いで加わる）
       return tierTree('architecture', ['knowledge-graph'], ['products']);
     case '現場': // 主領域に Twin ビュー（3D デジタルツイン。Q-062 A）、右に KPI/OKR、下にガント
       return tierTree('twin-view', ['kpi-okr'], ['gantt']);
