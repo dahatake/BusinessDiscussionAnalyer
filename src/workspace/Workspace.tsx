@@ -154,6 +154,8 @@ const KEY_STEP = 0.02;
 
 /** 最小化したコンポーネントの見出しだけの高さと、横に並べたときの幅（4px グリッド。FR-151） */
 export const MINIMIZED_HEIGHT = 64;
+/** 木の高さに足す余裕（px）。下限ぎりぎりで主役と詳細が同じ大きさにならず、主役が最大のままになる（FR-296・FR-244） */
+const TREE_SLACK = 40;
 export const MINIMIZED_WIDTH = 240;
 
 const DRAG_THRESHOLD_PX = 4;
@@ -366,7 +368,12 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     const top = Math.round(t.getBoundingClientRect().top - root.getBoundingClientRect().top);
     if (top !== treeTop) setTreeTop(top);
   });
-  const [drag, setDrag] = useState<DragState | null>(null);
+  // 最大化したコンポーネントが作業領域全体を覆うよう、スクロールを先頭へ戻す（FR-296 で木が高くなり、作業領域がスクロールするため。FR-013 AC-592）
+  useEffect(() => {
+    if (maximized === null) return;
+    const ws = rootRef.current?.closest('[data-testid="workspace"]');
+    if (ws) ws.scrollTop = 0;
+  }, [maximized]);  const [drag, setDrag] = useState<DragState | null>(null);
   /** スナップ前の大きさ（作業領域に対する割合。保存しない）。端から引き離したとき、この大きさへ戻す。スナップしたものは、ほかのスナップで動かさない（FR-152 AC-795） */
   const snapMem = useRef(new Map<string, { w: number; h: number }>());
   /** スナップした直後に、残った領域を埋めるコンポーネントを選ぶ候補（FR-152 AC-794） */
@@ -452,7 +459,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     });
     const fitted = fitMinWidth(sized, treeWidth, [picked, focusKey]);
     // 自動のサイズ調整・境界の操作・スナップのどれでも、各コンポーネントの幅・高さが PARAM-134・PARAM-135 を下回らないようにする（FR-296 AC-801）
-    return fitted && treeWidth > 0 ? enforceMin(fitted, treeWidth, Math.max(height - treeTop, needHeight(fitted))) : fitted;
+    return fitted && treeWidth > 0 ? enforceMin(fitted, treeWidth, Math.max(height - treeTop, needHeight(fitted) + TREE_SLACK)) : fitted;
   }, [treeBase, compact, autoSize, expandedOut, focusKey, persona, manualKeys, treeWidth, picked, height, treeTop]);
 
   // FR-299: ゾーンの操作（Snap・Group・Move）の補助。Snap・Group は、割り当て済みのコンポーネントの位置も、ゾーンの矩形へ置き直す
@@ -1447,7 +1454,6 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       data-view-x={areaView.x}
       data-view-y={areaView.y}
       className={mergeClasses(s.root, compact ? s.rootCompact : undefined, resizing && motionOn ? s.resizing : undefined)}
-      style={base && !compact && !expandedOut ? { flex: '1 0 auto' } : undefined}
       data-layout={compact ? 'stacked' : 'split'}
       data-drag-active={drag || resizing ? 'true' : undefined}
       tabIndex={0}
@@ -1514,7 +1520,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         <div data-testid="workspace-notice" role="status" aria-live="polite" className={notice && taskWs.mode !== 'focus' ? s.notice : s.noticeIdle}>{notice?.text ?? ''}</div>
       </div>
       <WindowList screens={screens} layout={base} minimized={minSet} />
-      <div ref={treeRef} className={s.treeBox} style={inset ? { ...inset, minHeight: 0 } : (base && !compact ? { minHeight: Math.max(needHeight(base), 0) } : undefined)}>
+      <div ref={treeRef} className={s.treeBox} style={inset ? { ...inset, minHeight: 0 } : (base && !compact ? { minHeight: needHeight(base) + TREE_SLACK } : undefined)}>
         {layout ? (compact ? renderStack(layout) : render(layout, [])) : (
           <Text className={s.empty} size={400}>{outKeys.length > 0 ? '' : t('表示中のコンポーネントがありません。左のドックから再表示してください。')}</Text>
         )}
