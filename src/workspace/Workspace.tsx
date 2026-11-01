@@ -13,6 +13,8 @@ import { keysOf, prune, type DropZone, type LayoutNode, type Path, type SplitNod
 import { MIN_COMPONENT_WIDTH, applyAutoSize, fitMinWidth } from './autosize';
 import { enforceMin, floorFloat, needHeight } from './windowLimits';
 import { WindowList } from './WindowList';
+import { IMMERSIVE_DIM_PERCENT, windowStates } from './windowStates';
+import { withOpacity } from '../theme/frameMaterial';
 import { PERSONA_PRIMARY } from './persona';
 import { areaPanDelta } from './areaPan';
 import { useAreaViewport } from './useAreaViewport';
@@ -96,6 +98,8 @@ const useStyles = makeStyles({
   },
   noticeIdle: { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' },
   // 分割の木を入れる箱。拡大表示中は、余白で残りの領域に収める（FR-174）
+  // 没入表示の覆い（FR-297）。最大化したコンポーネント（zIndex 900・1000）のすぐ下
+  immersiveBackdrop: { position: 'absolute', inset: 0, zIndex: 800 },
   treeBox: { display: 'flex', flexDirection: 'column', flex: '1 1 0', minHeight: 'min(240px, 30vh)', minWidth: 0, boxSizing: 'border-box' },
   // 自由配置・拡大表示のコンポーネントの置き場（作業領域に対する絶対配置。重なりを許す。FR-173）
   floatBox: { position: 'absolute', display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, boxSizing: 'border-box', boxShadow: tokens.shadow16, borderRadius: tokens.borderRadiusMedium, overflow: 'hidden' },
@@ -329,9 +333,26 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   const autoSize = useLayout((st) => st.autoSize);
   const manualKeys = useLayout((st) => st.manual[st.persona]);
   const maximized = useLayout((st) => st.maximized);
+  const usedAt = useLayout((st) => st.usedAt);
   const snapMotion = useSnapMotion();
   const minimizedKeys = useLayout((st) => st.minimized[st.persona]);
   const minSet = useMemo(() => new Set(minimizedKeys ?? []), [minimizedKeys]);
+  // 前面のコンポーネント（FR-295 の一覧と同じ求め方。FR-297 AC-803: 前面の見出しの強調に使う）
+  const frontKey = useMemo(() => {
+    const st = windowStates({ keys: screens.filter((sc) => !!sc.component && !sc.modal).map((sc) => sc.key), layout: base, minimized: minSet, closed: new Set(), usedAt });
+    return Object.keys(st).find((k) => st[k] === 'front') ?? null;
+  }, [screens, base, minSet, usedAt]);
+  // 没入表示（FR-297 AC-802）: 最大化中の Esc は、ほかの処理（切替の取消・ドラッグの中止・コンポーネント内の Esc）が先に使わなかったときだけ通常表示に戻す
+  useEffect(() => {
+    if (maximized === null) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      useLayout.getState().setMaximized(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [maximized]);
   // ピン止めしたコンポーネントと、ピン止めした位置と大きさ（作業領域に対する割合。FR-215・FR-216）
   const pinnedMap = useLayout((st) => st.pinned[st.persona]);
   const pinSet = useMemo(() => new Set(Object.keys(pinnedMap ?? {})), [pinnedMap]);
@@ -368,12 +389,32 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     const top = Math.round(t.getBoundingClientRect().top - root.getBoundingClientRect().top);
     if (top !== treeTop) setTreeTop(top);
   });
-  // 最大化したコンポーネントが作業領域全体を覆うよう、スクロールを先頭へ戻す（FR-296 で木が高くなり、作業領域がスクロールするため。FR-013 AC-592）
+  // 最大化したコンポーネントが作業領域全体を覆うよう、スクロールを先頭へ戻す（FR-296 で木が高くなり、作業領域がスクロールするため。FR-013 AC-592）。
+  // 通常表示へ戻るときは、最大化の前のスクロール位置へ戻す（FR-297 AC-802: 最大化の前後で見た目の位置を変えない）
+  const maxNowRef = useRef<string | null>(maximized);
+  maxNowRef.current = maximized;
+  const savedScroll = useRef(0);
   useEffect(() => {
-    if (maximized === null) return;
     const ws = rootRef.current?.closest('[data-testid="workspace"]');
+    if (!ws) return;
+    const onScroll = () => { if (maxNowRef.current === null) savedScroll.current = ws.scrollTop; };
+    ws.addEventListener('scroll', onScroll, { passive: true });
+    return () => ws.removeEventListener('scroll', onScroll);
+  }, []);
+  const wasMaximized = useRef(false);
+  useEffect(() => {
+    const ws = rootRef.current?.closest('[data-testid="workspace"]');
+    if (maximized === null) {
+      if (wasMaximized.current && ws) ws.scrollTop = savedScroll.current;
+      // 操作中の自動の拡大（FR-143）は一時的なものなので、没入表示から戻るときは外し、保存した位置・大きさ（AC-591）へ戻す（FR-297 AC-802）
+      if (wasMaximized.current && !compact) setFocusKey(null);
+      wasMaximized.current = false;
+      return;
+    }
+    wasMaximized.current = true;
     if (ws) ws.scrollTop = 0;
-  }, [maximized]);  const [drag, setDrag] = useState<DragState | null>(null);
+  }, [maximized]);
+  const [drag, setDrag] = useState<DragState | null>(null);
   /** スナップ前の大きさ（作業領域に対する割合。保存しない）。端から引き離したとき、この大きさへ戻す。スナップしたものは、ほかのスナップで動かさない（FR-152 AC-795） */
   const snapMem = useRef(new Map<string, { w: number; h: number }>());
   /** スナップした直後に、残った領域を埋めるコンポーネントを選ぶ候補（FR-152 AC-794） */
@@ -531,6 +572,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         announce(tr('{label}をピン止めしました', { label }));
       },
       maximized: isMax,
+      front: frontKey === key,
       expanded: expandedOut === key,
       toggleExpand: () => actions().toggleExpanded(key),
       floating: isFloat,
@@ -1547,6 +1589,15 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
           </div>
         );
       })}
+      {maximized !== null ? (
+        // 没入表示（FR-297 AC-802）: 最大化したコンポーネントの背面を PARAM-137 % 暗くし、背面への操作を通さない
+        <div
+          data-testid="immersive-backdrop"
+          aria-hidden
+          className={s.immersiveBackdrop}
+          style={{ backgroundColor: withOpacity([0, 0, 0], IMMERSIVE_DIM_PERCENT / 100) }}
+        />
+      ) : null}
       {floatBorders.map((bd) => (
         <div
           key={`border-${bd.dir}-${bd.before.join('+')}|${bd.after.join('+')}`}
