@@ -1,12 +1,12 @@
 // 画面上部の「Copilot で分析実行」ボタン（FR-278）。押すと、画面のすべてのコンポーネントが保持しているデータを Foundry に送って案を得る。
 // 送信前の確認（送る情報の種類と対象の一覧。取り消しで 0 回）、進行中の表示（その間もほかを操作できる）、状態のメッセージ（role=status）を受け持つ。
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { tr, useT } from '../i18n';
 import { Button, DialogActions, DialogBody, DialogContent, DialogTitle, Spinner, Text, makeStyles, tokens } from '@fluentui/react-components';
 import { Dialog, DialogSurface } from '../components/Dialog';
 import { useAi } from '../ai/useAi';
 import { useConsent } from '../ai/useConsent';
-import { fetchFoundryView, type FoundryView } from '../ai/foundryClient';
+import { fetchFoundryView } from '../ai/foundryClient';
 import { useUsageStore } from '../ai/foundryUsage';
 import { confirmViaUi, countPersons, gatePersonConfirm } from '../ai/personConfirm';
 import { usePackStore } from '../store/pack';
@@ -38,16 +38,6 @@ export function CopilotReviewButton() {
   const notice = useReviewStore((st) => st.notice);
   const confirm = useReviewStore((st) => st.confirm);
   const busy = useRef(false);
-  // 中継の設定の先読み（実行できる状態だったときの結果だけ持つ）。押した直後に送信前の確認を出すため。
-  // 負荷で中継の応答が遅れても、確認が押下の直後に出る。古い結果で送ってしまっても、中継が応答の理由で拒否する（requestReview）
-  const warm = useRef<{ key: string; view: FoundryView } | null>(null);
-  const prefetch = (): void => {
-    const key = `${relayUrl ?? ''}|${packId}`;
-    void fetchFoundryView(relayUrl, packId).then((v) => {
-      warm.current = v && v.configured && v.enabled ? { key, view: v } : null;
-    });
-  };
-  useEffect(() => { prefetch(); }, [relayUrl, packId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = async (): Promise<void> => {
     if (busy.current) return;
@@ -60,11 +50,8 @@ export function CopilotReviewButton() {
       const out = await runReview({
         relayUrl, packId, consent: granted,
         includesPerson: !!data && countPersons(data) > 0,
-        view: async () => {
-          const w = warm.current;
-          if (w && w.key === `${relayUrl ?? ''}|${packId}`) { prefetch(); return w.view; }
-          return fetchFoundryView(relayUrl, packId);
-        },
+        view: () => fetchFoundryView(relayUrl, packId),
+        dismissConfirm: () => answerSend(false),
         usage: { check: () => usage.check(), count: (n, out) => usage.count(n, undefined, undefined, out) },
         confirmSend: async (targets) => { const ok = await askSend(targets); if (ok) useReviewStore.getState().start(); return ok; },
         confirmPerson: () => gatePersonConfirm({ destination: 'ai', scopeLabel: reviewScopeLabel(), data: data!, consent: record, confirm: confirmViaUi }),
