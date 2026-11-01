@@ -1436,7 +1436,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       if (k) {
         focusTimer.current = window.setTimeout(() => {
           focusTimer.current = null;
-          if (!expandedRef.current) setFocusKey(k);
+          // 没入表示の最中・復帰の後に遅れて発火して、FR-143 の拡大が再び掛からないようにする（FR-297）
+          if (!expandedRef.current && maxNowRef.current === null) setFocusKey(k);
         }, POINTER_FOCUS_DELAY_MS);
         focusTimerKey.current = k;
       }
@@ -1463,6 +1464,11 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       window.removeEventListener('pointercancel', up, true);
     };
   }, []);
+  // 没入表示の切り替わり（最大化・復帰）で、遅れて予約された操作中の拡大は捨てる（FR-297）
+  useEffect(() => {
+    pendingFocus.current = null;
+    if (focusTimer.current !== null) { window.clearTimeout(focusTimer.current); focusTimer.current = null; }
+  }, [maximized]);
   const onFocusCapture = (e: FocusEvent<HTMLDivElement>) => {
     lastFocused.current = e.target as HTMLElement;
     for (let n: Element | null = e.target as Element; n && n !== e.currentTarget; n = n.parentElement) {
