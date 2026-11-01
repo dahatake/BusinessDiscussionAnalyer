@@ -94,6 +94,23 @@ describe('FR-014 AC-017 / FR-110 AC-135 レイアウトのストア', () => {
     expect(st.maximized).toBeNull();
   });
 
+  // FR-185 AC-393
+  it('FR-185 AC-393 境界のドラッグ中は保存を保留し（ポインター移動ごとの書き込みをしない）、離したときに 1 度だけ最新の配置を書く', async () => {
+    const { useLayout, storage, holdLayoutPersist, onLayoutPersistRelease } = await freshStore(ALL);
+    useLayout.getState().setPersona('事業部門');
+    const keys = keysOf(useLayout.getState().layouts['事業部門'] ?? defaultLayout('事業部門'));
+    const before = storage.getItem('edb.layout');
+    let released = 0;
+    onLayoutPersistRelease(() => { released++; });
+    holdLayoutPersist(true);
+    for (let i = 0; i < 5; i++) useLayout.getState().resizeByKeys(keys[0]!, keys[1]!, 0.01);
+    expect(storage.getItem('edb.layout')).toBe(before); // 保留中は書かない
+    const held = useLayout.getState().layouts['事業部門'];
+    holdLayoutPersist(false);
+    expect(released).toBe(1);
+    expect(JSON.parse(storage.getItem('edb.layout')!).state.layouts['事業部門']).toEqual(held); // 離したときに書く
+  });
+
   // FR-014 AC-017
   it('FR-014 AC-017 merge: 壊れた保存値（不正なペルソナ・不正な木・型違い）は捨て、有効な分だけ取り込む', async () => {
     const good = defaultLayout('IT');

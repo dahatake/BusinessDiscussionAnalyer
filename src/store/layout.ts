@@ -1,7 +1,7 @@
 // ワークスペースのレイアウトの状態。ペルソナ別に localStorage へ保存し、再読込で復元する（FR-014）。
 // 「選択中の対象」と「絞り込み」は別の状態で、ここでは持たない（FR-110: 既定に戻しても変わらない）。
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import {
   DEFAULT_PERSONA, PERSONAS, activate, keysOf, arrangeAll, defaultLayout, hide, isLayout, isVisible, mergeIntoTabs, move, prune, resize, show,
   splitFromTabs, splitBetween, toggleDirection, dropAt, getAt, type DropZone, type Layout, type Move, type Path, type Persona,
@@ -196,6 +196,41 @@ export function isPinned(s: Pick<LayoutState, 'persona' | 'pinned'>, key: string
 /** 使った順の目印の時計（保存しない） */
 let useClock = 0;
 
+/**
+ * 境界のドラッグ中は、配置の保存（JSON 化と localStorage への書き込み）をポインター移動のたびに行わず、離したときに 1 度だけ書く（FR-185 AC-393: リサイズ中 30fps 以上）。
+ * 保持を解くと、保留した保存を書き、登録された後処理（タスク文脈の保存など）を呼ぶ。
+ */
+let persistHeld = false;
+let pendingWrite: { name: string; value: StorageValue<unknown> } | null = null;
+const releaseHooks: Array<() => void> = [];
+export const isLayoutPersistHeld = (): boolean => persistHeld;
+export function onLayoutPersistRelease(fn: () => void): void { releaseHooks.push(fn); }
+const baseStorage = createJSONStorage<unknown>(() => localStorage);
+const layoutStorage: PersistStorage<unknown> = {
+  getItem: (name) => baseStorage?.getItem(name) ?? null,
+  removeItem: (name) => baseStorage?.removeItem(name),
+  setItem: (name, value) => {
+    if (persistHeld) { pendingWrite = { name, value }; return; }
+    return baseStorage?.setItem(name, value);
+  },
+};
+function flushLayoutWrite(): void {
+  if (!pendingWrite) return;
+  const p = pendingWrite;
+  pendingWrite = null;
+  void baseStorage?.setItem(p.name, p.value);
+}
+export function holdLayoutPersist(on: boolean): void {
+  if (persistHeld === on) return;
+  persistHeld = on;
+  // 境界のドラッグ中は、影・背景のぼかしを止める（design.css の data-edb-resizing。毎フレームの再合成・ラスタライズを減らす。FR-185 AC-393）
+  if (typeof document !== 'undefined') document.documentElement.toggleAttribute('data-edb-resizing', on);
+  if (on) return;
+  flushLayoutWrite();
+  releaseHooks.forEach((f) => f());
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('pagehide', flushLayoutWrite);
+
 export const useLayout = create<LayoutState>()(
   persist(
     (set, get) => {
@@ -308,8 +343,15 @@ export const useLayout = create<LayoutState>()(
           const at = splitBetween(l, a, b);
           if (!at || !l) return;
           const keys = resizedKeys(getAt(l, at.path), at.index);
-          set((st) => ({ manual: { ...st.manual, [st.persona]: [...new Set([...(st.manual[st.persona] ?? []), ...keys])] } }));
-          apply((x) => resize(x, at.path, at.index, delta));
+          // 1 回の set にまとめる（ポインター移動のたびの再描画・保存を 1 回にする）
+          set((st) => {
+            const manual = { ...st.manual, [st.persona]: [...new Set([...(st.manual[st.persona] ?? []), ...keys])] };
+            return {
+              manual,
+              layouts: { ...st.layouts, [st.persona]: resize(effectiveLayout(st), at.path, at.index, delta) },
+              userLaid: { ...st.userLaid, [st.persona]: true },
+            };
+          });
         },
         setPersona: (persona) => set({ persona, maximized: null, expanded: null }),
         hideComponent: (key) => {
@@ -453,6 +495,7 @@ export const useLayout = create<LayoutState>()(
     {
       name: 'edb.layout',
       version: 1,
+      storage: layoutStorage as never,
       partialize: (s) => ({ persona: s.persona, floats: s.floats, pinned: s.pinned, views: s.views, screenView: s.screenView, zOrder: s.zOrder, layouts: s.layouts, autoSize: s.autoSize, manual: s.manual, minimized: s.minimized, closed: s.closed, navMin: s.navMin, tiers: s.tiers, autoOff: s.autoOff, moved: s.moved, userLaid: s.userLaid }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Pick<LayoutState, 'persona' | 'floats' | 'pinned' | 'views' | 'screenView' | 'zOrder' | 'layouts' | 'autoSize' | 'manual' |         'minimized' | 'navMin' | 'tiers' | 'autoOff' | 'moved' | 'userLaid'>>;

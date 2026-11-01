@@ -7,7 +7,7 @@ import { useSnapMotion, motionAllowed } from '../motion/useFoldMotion';
 import { prefersReducedMotion, useAnimation } from '../store/animation';
 import { SNAP_LABEL, defaultSnapKind, nearestCorner, snapKindsFor, snapRect, type Edge, type SnapKind, type SnapOpts } from './snap';
 import type { ScreenDefinition } from '../screens/types';
-import { effectiveLayout, personaKeys, useLayout, clampFloat, isPinned, setWorkspaceArea, type FloatRect } from '../store/layout';
+import { effectiveLayout, personaKeys, useLayout, clampFloat, isPinned, setWorkspaceArea, holdLayoutPersist, type FloatRect } from '../store/layout';
 import { EXPAND_RATIO, useSettings, type ExpandPosition } from '../store/settings';
 import { keysOf, prune, type DropZone, type LayoutNode, type Path, type SplitNode } from './layoutModel';
 import { MIN_COMPONENT_WIDTH, applyAutoSize, fitMinWidth } from './autosize';
@@ -273,6 +273,7 @@ function Separator({ a, b, dir, size, onActive }: { a: string; b: string; dir: '
     const r = parent.getBoundingClientRect();
     start.current = { pos: vertical ? e.clientX : e.clientY, total: vertical ? r.width : r.height, last: 0 };
     e.currentTarget.setPointerCapture(e.pointerId);
+    holdLayoutPersist(true);
     onActive(true);
     e.preventDefault();
   };
@@ -287,6 +288,7 @@ function Separator({ a, b, dir, size, onActive }: { a: string; b: string; dir: '
   const end = (e: PointerEvent<HTMLDivElement>) => {
     start.current = null;
     onActive(false);
+    holdLayoutPersist(false);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -799,11 +801,13 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     el.setPointerCapture(e.pointerId);
     e.preventDefault();
     for (const k of [...bd.before, ...bd.after]) markManual(k);
+    holdLayoutPersist(true);
     const move = (ev: globalThis.PointerEvent) => shiftBorder(bd, base, bd.dir === 'v' ? ev.clientX - sx : ev.clientY - sy, bounds);
     const end = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', end);
       el.removeEventListener('pointercancel', end);
+      holdLayoutPersist(false);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', end);
