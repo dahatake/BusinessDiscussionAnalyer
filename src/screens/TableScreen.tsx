@@ -221,7 +221,7 @@ function TableScreen() {
       ) : viewMode === '3d' && !asTable ? (
         <Items3DSurface viewKey={ORIGIN} origin={ORIGIN} label={t('項目の一覧')} items={items3d} links={links3d} axes={{ x: t('種別') }} />
       ) : (
-        <Table aria-label={t('項目の一覧')} size="small">
+        <Table role="treegrid" aria-label={t('項目の一覧')} size="small">
           <TableHeader>
             <TableRow>
               <TableHeaderCell>{t('状態')}</TableHeaderCell>
@@ -236,8 +236,8 @@ function TableScreen() {
               if (exiting) {
                 return (
                   <TableRow key={n.id} aria-hidden className={s.row} style={{ opacity: lifeOpacity(life), pointerEvents: 'none' }}>
-                    <TableCell className={s.cell} /><TableCell className={s.cell}>{t(KIND_LABELS[n.kind])}{n.type ? `（${n.type}）` : ''}</TableCell>
-                    <TableCell className={s.cell} /><TableCell className={s.cell}>{n.label}</TableCell><TableCell className={mergeClasses(s.cell, s.idCell, s.hideNarrow)} />
+                    <TableCell role="cell" className={s.cell} /><TableCell role="cell" className={s.cell}>{t(KIND_LABELS[n.kind])}{n.type ? `（${n.type}）` : ''}</TableCell>
+                    <TableCell role="cell" className={s.cell} /><TableCell role="cell" className={s.cell}>{n.label}</TableCell><TableCell role="cell" className={mergeClasses(s.cell, s.idCell, s.hideNarrow)} />
                   </TableRow>
                 );
               }
@@ -262,16 +262,16 @@ function TableScreen() {
                   style={life < 1 ? { opacity: lifeOpacity(life) } : undefined}
                   onKeyDown={(e) => { onEntityKey(e, n.id, ORIGIN); }}
                 >
-                  <TableCell className={s.cell}>{hasChildren ? (
+                  <TableCell role="cell" className={s.cell}>{hasChildren ? (
                     <Button
                       size="small" appearance="subtle" icon={expanded ? <ChevronDown16Regular aria-hidden /> : <ChevronRight16Regular aria-hidden />}
                       aria-label={expanded ? t('{title} を折りたたむ', { title: n.label }) : t('{title} を展開', { title: n.label })}
                       onClick={(e) => { e.stopPropagation(); toggle(n.id); }}
                     />
                   ) : null}{state ? <Badge appearance="outline" color={state === '選択中' ? 'brand' : 'informative'}>{t(state)}</Badge> : null}</TableCell>
-                  <TableCell className={s.cell}>{t(KIND_LABELS[n.kind])}{n.type ? `（${n.type}）` : ''}</TableCell>
+                  <TableCell role="cell" className={s.cell}>{t(KIND_LABELS[n.kind])}{n.type ? `（${n.type}）` : ''}</TableCell>
                   {/* 世界区分（FR-218）。区分なしは「両方」でだけ出る。ツイン関係は相手の名前の印で示す */}
-                  <TableCell className={s.cell}>
+                  <TableCell role="cell" className={s.cell}>
                     {n.world ? WORLD_VIEW_LABELS[n.world] : UNCLASSIFIED_LABEL}
                     {(twinPartners.get(n.id) ?? []).map((t) => {
                       const rel = graph.twinsOf(n.id).find((x) => x.id === t)?.relationLabel;
@@ -280,7 +280,7 @@ function TableScreen() {
                     })}
                   </TableCell>
                   <NameCell node={n} className={s.cell} indent={depth} />
-                  <TableCell className={mergeClasses(s.cell, s.idCell, s.hideNarrow)}>{n.id}</TableCell>
+                  <TableCell role="cell" className={mergeClasses(s.cell, s.idCell, s.hideNarrow)}>{n.id}</TableCell>
                 </TableRow>
               );
             })}

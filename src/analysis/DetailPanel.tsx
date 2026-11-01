@@ -108,8 +108,8 @@ function EditableTitle({ id, title }: { id: string; title: string }) {
 export function DetailPanel({ hostPriority = 1, ...props }: DetailProps) {
   // タブで隠れている画面の詳細パネルは出さない（隠れた置き場が、見えている置き場の詳細を押しのけないように）
   const pane = usePane();
-  const visible = !pane || pane.visible;
-  const active = useDetailHost(hostPriority, visible);
+  const visible = !pane || (pane.visible && !pane.minimized);
+  const active = useDetailHost(hostPriority + (pane?.compact && pane.front ? 100 : 0), visible);
   return visible && active ? <DetailBody {...props} /> : null;
 }
 

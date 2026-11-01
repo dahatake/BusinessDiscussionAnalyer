@@ -7,7 +7,7 @@ import { useSnapMotion, motionAllowed } from '../motion/useFoldMotion';
 import { prefersReducedMotion, useAnimation } from '../store/animation';
 import { SNAP_LABEL, defaultSnapKind, nearestCorner, snapKindsFor, snapRect, type Edge, type SnapKind, type SnapOpts } from './snap';
 import type { ScreenDefinition } from '../screens/types';
-import { effectiveLayout, personaKeys, useLayout, clampFloat, isPinned, setWorkspaceArea, type FloatRect } from '../store/layout';
+import { effectiveLayout, personaKeys, useLayout, clampFloat, isPinned, setWorkspaceArea, holdLayoutPersist, type FloatRect } from '../store/layout';
 import { EXPAND_RATIO, useSettings, type ExpandPosition } from '../store/settings';
 import { keysOf, prune, type DropZone, type LayoutNode, type Path, type SplitNode } from './layoutModel';
 import { MIN_COMPONENT_WIDTH, applyAutoSize, fitMinWidth } from './autosize';
@@ -273,6 +273,7 @@ function Separator({ a, b, dir, size, onActive }: { a: string; b: string; dir: '
     const r = parent.getBoundingClientRect();
     start.current = { pos: vertical ? e.clientX : e.clientY, total: vertical ? r.width : r.height, last: 0 };
     e.currentTarget.setPointerCapture(e.pointerId);
+    holdLayoutPersist(true);
     onActive(true);
     e.preventDefault();
   };
@@ -287,6 +288,7 @@ function Separator({ a, b, dir, size, onActive }: { a: string; b: string; dir: '
   const end = (e: PointerEvent<HTMLDivElement>) => {
     start.current = null;
     onActive(false);
+    holdLayoutPersist(false);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -584,6 +586,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       },
       maximized: isMax,
       front: frontKey === key,
+      compact,
       expanded: expandedOut === key,
       toggleExpand: () => actions().toggleExpanded(key),
       floating: isFloat,
@@ -599,7 +602,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       z: isFloat && zRank >= 0 ? 3 + zRank : undefined,
       minimized: minSet.has(key),
       toggleMinimize: () => a.setMinimized(key, !minSet.has(key)),
-      visible: group.length === 1 || active === key,
+      // 領域が足りず木の外に隠している（parked）ものは、見えていない扱い（詳細パネルの置き場などに数えない）
+      visible: (group.length === 1 || active === key) && !(parkedMap.includes(key) && !keysOf(layout).includes(key) && !outKeys.includes(key)),
       inTabs: group.length > 1,
       peers: keysOf(layout).filter((k) => !group.includes(k) && !pinSet.has(k)).map((k) => ({ key: k, label: byKey(k)?.label ?? k })),
       toggleMaximize: () => { if (actions().maximized === key) restoredByButton.current = true; actions().setMaximized(actions().maximized === key ? null : key); },
@@ -797,11 +801,13 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     el.setPointerCapture(e.pointerId);
     e.preventDefault();
     for (const k of [...bd.before, ...bd.after]) markManual(k);
+    holdLayoutPersist(true);
     const move = (ev: globalThis.PointerEvent) => shiftBorder(bd, base, bd.dir === 'v' ? ev.clientX - sx : ev.clientY - sy, bounds);
     const end = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', end);
       el.removeEventListener('pointercancel', end);
+      holdLayoutPersist(false);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', end);
@@ -1654,7 +1660,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         </div>
       ) : null}
       {parkedKeys.length > 0 ? (
-        <div hidden aria-hidden data-testid="parked-windows">
+        // visibility:hidden: Tabster は display:none の中の SVG 要素（offsetParent を持たない。グラフのノード）を「見えている」と見なして Tab の行き先にし、フォーカスが動かない罠になる（NFR-A11Y-001 AC-170）。visibility は継承され、Tabster も見る
+        <div hidden aria-hidden data-testid="parked-windows" style={{ visibility: 'hidden' }}>
           {parkedKeys.map((k) => <Slot key={k} host={hostOf(k)} hidden />)}
         </div>
       ) : null}

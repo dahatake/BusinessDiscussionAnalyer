@@ -27,6 +27,8 @@ export interface PaneInfo {
   maximized: boolean;
   /** 前面のコンポーネントか（FR-295 の一覧と同じ。FR-297 AC-803: 見出しの強調・強い影） */
   front?: boolean;
+  /** 縦積みの狭い表示か。このとき詳細パネルは前面のコンポーネントが受け持つ（FR-044・FR-295） */
+  compact?: boolean;
   /** 最小化しているか（見出しだけを残して畳む。FR-151） */
   minimized: boolean;
   toggleMinimize: () => void;

@@ -99,6 +99,13 @@
 [data-testid="workspace"]:has([data-drag-active="true"]) [data-testid^="zone-boundary-"] {
   backdrop-filter: none;
 }
+/* 境界のドラッグ中（store/layout.ts の holdLayoutPersist が付ける）は、影と背景のぼかしを止めて、1 フレームの描画を軽くする（FR-185 AC-393） */
+:root[data-edb-resizing] *,
+:root[data-edb-resizing] *::before,
+:root[data-edb-resizing] *::after {
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
 
 /* ── OS の「視差効果を減らす」（NFR-UX-017・FR-072）: すべての画面で、動きを付けずに最終の状態を示す ── */
 @media (prefers-reduced-motion: reduce) {
