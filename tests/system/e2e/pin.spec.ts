@@ -52,14 +52,24 @@ async function settle(page: Page, keys: string[]): Promise<void> {
 }
 
 async function dragHeadingTo(page: Page, c: Locator, toX: number, toY: number): Promise<void> {
-  const h = await box(c.getByRole('heading').first());
-  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  // FR-296: 先に置いたコンポーネントが、あとから置くものの見出しやハンドルを覆うことがある。手前に出ている（覆われていない）点をつかむ。
+  const id = await c.getAttribute('data-testid');
+  const hd = await box(c.getByTestId('panel-handle').first());
+  const hh = await box(c.getByRole('heading').first());
+  const cand: Array<[number, number]> = [];
+  for (const f of [0.9, 0.7, 0.5, 0.3, 0.1]) cand.push([hd.x + hd.width * f, hd.y + hd.height / 2]);
+  for (const f of [0.5, 0.2, 0.8]) cand.push([hh.x + hh.width * f, hh.y + hh.height / 2]);
+  let g = cand[0]!;
+  for (const [x, y] of cand) {
+    const hit = await page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.closest('[data-testid^="component-"]:not([data-testid="component-menu"]):not([data-testid="component-actions"]):not([data-testid="component-data"])')?.getAttribute('data-testid') ?? null, [x, y]);
+    if (hit === id) { g = [x, y]; break; }
+  }
+  await page.mouse.move(g[0], g[1]);
   await page.mouse.down();
-  await page.mouse.move((h.x + h.width / 2 + toX) / 2, (h.y + h.height / 2 + toY) / 2, { steps: 6 });
+  await page.mouse.move((g[0] + toX) / 2, (g[1] + toY) / 2, { steps: 6 });
   await page.mouse.move(toX, toY, { steps: 6 });
   await page.mouse.up();
 }
-
 test.describe('FR-215 ピン止めの切替（アイコン）', () => {
   // FR-215 AC-493
   test('FR-215 AC-493 ピンのアイコンを押すと「ピン止めを外す」（Filled・押下 true）に替わり、もう一度で「ピン止めする」（Regular）に戻り、アイコンは常に 1 つ、固定は再読込後も復元される', async ({ page, start }) => {
@@ -132,9 +142,10 @@ test.describe('FR-215 ピン止めの切替（アイコン）', () => {
 });
 
 test.describe('FR-216 ピン止めしたコンポーネントの固定と比率の保持', () => {
+  // FR-296 AC-800/801: 既定の構成の下限（360x240）・同時表示の上限で、作業領域の高さが足りず前提（ほかを 2 つの下側へ逃がす）を置けないため、ほかのコンポーネントは最小化（FR-151）で逃がす（検証内容は変えない）。
   /** KPI/OKR を上部の左、ガントチャートを上部の右に置いてピン止めする。選択と絞り込みも作っておく。 */
   async function arrange(page: Page) {
-    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.setViewportSize({ width: 1920, height: 1600 });
     // 選択中の対象と絞り込み（NFR-UX-001）
     const table = await openScreen(page, 'table');
     const firstRow = table.locator('[role="row"][data-entity-id]').first();
@@ -147,7 +158,25 @@ test.describe('FR-216 ピン止めしたコンポーネントの固定と比率�
     const kpi = await openScreen(page, 'kpi-okr');
     const gantt = await openScreen(page, 'gantt');
     const ws = await box(page.getByTestId('workspace'));
+    // FR-296: 各コンポーネントは 360x240 以上で、重なりを避けて下側へ逃がすと、ほかの見出しが KPI/OKR の下に隠れてつかめない。
+    // ほかのコンポーネントは、KPI/OKR・ガントチャートを上部へ置く前に最小化（FR-151。縦に長い列になり、下側に逃がす空きがない）して、重ならないようにする。
+    for (const o of (await topKeys(page)).filter((k) => k !== 'kpi-okr' && k !== 'gantt')) {
+      await component(page, o).focus(); // 操作アイコンはフォーカスで出る
+      await component(page, o).getByTestId('component-actions').getByRole('button', { name: '最小化', exact: true }).click();
+    }
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForTimeout(700);
     // スナップの範囲（端から 32px。PARAM-042）を避けて置く
+    // FR-296: 各コンポーネントは 360x240 以上で縦に長く、先に置いた方が後の見出しを覆う。見出しではなく、ハンドル（FR-183）の右寄りをつかむ。
+    // 最小化したものは、KPI/OKR・ガントチャートの下（作業領域の下端）へ先に逃がす（置いた後だと、つかむ場所が覆われる）。
+    for (const o of (await topKeys(page)).filter((k) => k !== 'kpi-okr' && k !== 'gantt')) {
+      const ob0 = await box(component(page, o));
+      await dragHeadingTo(page, component(page, o), ob0.x + ob0.width * 0.5, ws.y + ws.height - 120);
+      await page.waitForTimeout(300);
+    }
+    // 最小化した後の既定の構成は、ガントチャートが左・KPI/OKR が右なので、入れ替える（ガントチャートを先に上へ上げ、KPI/OKR を左上へ、ガントチャートを右上へ）。
+    const g0 = await box(gantt);
+    await dragHeadingTo(page, gantt, g0.x + g0.width * 0.5, ws.y + 60);
     await dragHeadingTo(page, kpi, ws.x + 185, ws.y + 60);
     await dragHeadingTo(page, gantt, ws.x + ws.width * 0.9, ws.y + 60);
     const kb = await box(kpi);
@@ -176,13 +205,13 @@ test.describe('FR-216 ピン止めしたコンポーネントの固定と比率�
   // FR-216 AC-495
   test('FR-216 AC-495 KPI/OKR を上部の左、ガントチャートを上部の右でピン止めし、幅を 1920→1280→1600 CSS px に変えても、比率の差が 1 ポイント以内で左右の並びが変わらず、重ならず、選択と絞り込みも変わらない', async ({ page, start }) => {
     test.setTimeout(180_000);
-    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.setViewportSize({ width: 1920, height: 1600 });
     await start();
     await selectPersona(page, '事業部門');
     const { kpi, gantt, selection, filterText } = await arrange(page);
     const base = { kpi: await ratios(page, kpi), gantt: await ratios(page, gantt) };
     for (const width of [1280, 1600]) {
-      await page.setViewportSize({ width, height: 1080 });
+      await page.setViewportSize({ width, height: 1600 });
       await settle(page, ['kpi-okr', 'gantt']);
       for (const [name, c] of [['kpi', kpi], ['gantt', gantt]] as const) {
         const r = await ratios(page, c);
@@ -206,12 +235,12 @@ test.describe('FR-216 ピン止めしたコンポーネントの固定と比率�
   // FR-216 AC-495（異常系: 幅を変えた後にほかのコンポーネントへフォーカスして自動のサイズ調整が働いても、ピン止めした 2 つは比率を保ち、重ならない）
   test('FR-216 AC-495 異常系: 1280 CSS px でほかのコンポーネントにフォーカスして自動のサイズ調整が働いても、ピン止めした 2 つの比率は 1 ポイント以内で重ならない', async ({ page, start }) => {
     test.setTimeout(180_000);
-    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.setViewportSize({ width: 1920, height: 1600 });
     await start();
     await selectPersona(page, '事業部門');
     const { kpi, gantt } = await arrange(page);
     const base = { kpi: await ratios(page, kpi), gantt: await ratios(page, gantt) };
-    await page.setViewportSize({ width: 1280, height: 1080 });
+    await page.setViewportSize({ width: 1280, height: 1600 });
     await settle(page, ['kpi-okr', 'gantt']);
     const others = (await topKeys(page)).filter((k) => k !== 'kpi-okr' && k !== 'gantt');
     expect(others.length, '前提: ほかのコンポーネントがない').toBeGreaterThan(0);

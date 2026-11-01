@@ -42,6 +42,8 @@ async function dragHeading(page: Page, c: Locator, toX: number, toY: number): Pr
 const overlap = (a: Box, b: Box) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
 
 test.describe('FR-173 コンポーネントのキャンバス内での自由な移動', () => {
+  // FR-296 AC-800/801: 既定の構成の下限（360x240）と作業領域のゾーンにより、1600x900 では 2 行目が画面外になるため、画面の高さを広げて前提を揃える（検証内容は変えない）。
+  test.use({ viewport: { width: 1600, height: 1400 } });
   // FR-173 AC-348（Q-066 B 2026-10-27 で改訂: 重なる位置へ置くと押し出さず、重なって表示され、掴んだものが手前に出る）
   test('FR-173 AC-348 ヘッダーのドラッグで別の位置に置け、再読込後も同じ位置。ほかのコンポーネントの上へ置くと押し出されず重なって表示され、掴んだものが手前に出る', async ({ page, start }) => {
     const app = await start();
@@ -64,7 +66,7 @@ test.describe('FR-173 コンポーネントのキャンバス内での自由な�
     const cy = (Math.max(moved.y, bAfter.y) + Math.min(moved.y + moved.height, bAfter.y + bAfter.height)) / 2;
     const frontKey = await page.evaluate(([x, y]) => {
       const el = document.elementFromPoint(x, y);
-      const hit = el?.closest('[data-testid^="component-"]:not([data-testid="component-menu"]):not([data-testid="component-actions"])');
+      const hit = el?.closest('[data-testid^="component-"]:not([data-testid="component-menu"]):not([data-testid="component-actions"]):not([data-testid="component-data"])');
       return hit?.getAttribute('data-testid') ?? null;
     }, [cx, cy]);
     expect(frontKey, '掴んだコンポーネントが手前に出ていない').toBe(`component-${a}`);
