@@ -323,7 +323,8 @@ test.describe('FR-185 移動中・リサイズ中の滑らかなアニメーシ�
     const [k] = await topKeys(page);
     const c = component(page, k);
     const b = await box(c);
-    const grip = page.getByRole('separator').first();
+    // 動かせる範囲が十分な縦の境界（aria-orientation=vertical）を対象にする
+    const grip = page.locator('[role="separator"][aria-orientation="vertical"]').first();
     const gb = await box(grip);
     const x0 = gb.x + gb.width / 2;
     const y0 = gb.y + gb.height / 2;
@@ -347,7 +348,7 @@ test.describe('FR-185 移動中・リサイズ中の滑らかなアニメーシ�
     await selectPersona(page, '事業部門');
     const [k] = await topKeys(page);
     const c = component(page, k);
-    const grip = page.getByRole('separator').first();
+    const grip = page.locator('[role="separator"][aria-orientation="vertical"]').first();
     const gb = await box(grip);
     const ws = await box(workspace(page));
     const x0 = gb.x + gb.width / 2;
