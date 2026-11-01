@@ -334,6 +334,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   const manualKeys = useLayout((st) => st.manual[st.persona]);
   const maximized = useLayout((st) => st.maximized);
   const usedAt = useLayout((st) => st.usedAt);
+  const parkedRaw = useLayout((st) => st.parked[st.persona]);
+  const parkedMap = parkedRaw ?? [];
   const snapMotion = useSnapMotion();
   const minimizedKeys = useLayout((st) => st.minimized[st.persona]);
   const minSet = useMemo(() => new Set(minimizedKeys ?? []), [minimizedKeys]);
@@ -402,15 +404,24 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     return () => ws.removeEventListener('scroll', onScroll);
   }, []);
   const wasMaximized = useRef(false);
+  const focusKeyRef = useRef<string | null>(null);
+  focusKeyRef.current = focusKey;
+  const focusBeforeMax = useRef<string | null>(null);
+  const maxPrev = useRef<string | null>(null);
+  const restoredByButton = useRef(false);
   useEffect(() => {
     const ws = rootRef.current?.closest('[data-testid="workspace"]');
     if (maximized === null) {
       if (wasMaximized.current && ws) ws.scrollTop = savedScroll.current;
       // 操作中の自動の拡大（FR-143）は一時的なものなので、没入表示から戻るときは外し、保存した位置・大きさ（AC-591）へ戻す（FR-297 AC-802）
-      if (wasMaximized.current && !compact) setFocusKey(null);
+      // 見出しの「通常表示」で戻すときは、最大化の前に操作中だった状態へ戻す（FR-149 AC-254: 最大化の前後で幅が変わらない）。Esc・一覧からの復帰は外す（FR-297 AC-802）
+      if (wasMaximized.current && !compact) setFocusKey(restoredByButton.current && focusBeforeMax.current === maxPrev.current ? focusBeforeMax.current : null);
+      restoredByButton.current = false;
       wasMaximized.current = false;
       return;
     }
+    if (!wasMaximized.current) focusBeforeMax.current = focusKeyRef.current;
+    maxPrev.current = maximized;
     wasMaximized.current = true;
     if (ws) ws.scrollTop = 0;
   }, [maximized]);
@@ -591,7 +602,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       visible: group.length === 1 || active === key,
       inTabs: group.length > 1,
       peers: keysOf(layout).filter((k) => !group.includes(k) && !pinSet.has(k)).map((k) => ({ key: k, label: byKey(k)?.label ?? k })),
-      toggleMaximize: () => actions().setMaximized(actions().maximized === key ? null : key),
+      toggleMaximize: () => { if (actions().maximized === key) restoredByButton.current = true; actions().setMaximized(actions().maximized === key ? null : key); },
       restore: () => actions().setMaximized(null),
       hide: () => a.hideComponent(key),
       move: (d) => {
@@ -1070,6 +1081,9 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   };
   if (layout) collect(layout);
   outKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
+  // 領域が足りなくなって最小化したもの（木の外）は、隠したまま残す（一覧から戻すとき、状態と最新の内容を保つ。FR-296 AC-801）
+  const parkedKeys = parkedMap.filter((k) => !groups.has(k) && !!byKey(k)?.component);
+  parkedKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
 
   // 見出しのメニューの操作を、コマンドパレットからも実行できるようにする（操作中のコンポーネントが対象。NFR-UX-018 AC-481・FR-215 AC-494）
   const lastPaneKey = useRef<string | null>(null);
@@ -1630,6 +1644,11 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
             <Button key={k} size="small" onClick={() => fillRemaining(k)}>{byKey(k)?.label ?? k}</Button>
           ))}
           <Button size="small" appearance="subtle" onClick={() => setAssist(null)}>{t('閉じる')}</Button>
+        </div>
+      ) : null}
+      {parkedKeys.length > 0 ? (
+        <div hidden aria-hidden data-testid="parked-windows">
+          {parkedKeys.map((k) => <Slot key={k} host={hostOf(k)} hidden />)}
         </div>
       ) : null}
       {[...groups.entries()].map(([key, g]) => {

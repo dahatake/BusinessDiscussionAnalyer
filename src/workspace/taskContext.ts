@@ -117,7 +117,14 @@ export function bootTaskWorkspaces(): void {
   };
   useRetainedStore.subscribe(later);
   useSelectionStore.subscribe(later);
-  useLayout.subscribe(later);
+  // 配置の保存データ（edb.layout）は変更と同時に書かれる。文脈の中の配置も同時に書き、閲覧・操作の結果が遅れて別の保存データに現れないようにする（FR-279 AC-718・AC-719）。
+  // 最後に使った順（usedAt）・最小化で隠した画面（parked）など、保存しない状態の変化では書かない
+  useLayout.subscribe((s, prev) => {
+    if (applying) return;
+    const a = s as unknown as Record<string, unknown>;
+    const b = prev as unknown as Record<string, unknown>;
+    if (s.persona !== prev.persona || PER_PERSONA.some((k) => a[k] !== b[k])) flushContext();
+  });
   window.addEventListener('pagehide', () => flushContext());
   // 別のウィンドウでの変更（ロール・割合・モード・文脈）をこのウィンドウへ反映する
   window.addEventListener('storage', (e) => {
