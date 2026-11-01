@@ -1,7 +1,7 @@
 // レイアウトのストア（ペルソナ別の保存・復元・既定に戻す）とパネルのキー操作の単体・結合テスト。
 // FR-012 FR-013 FR-014 FR-109 FR-110
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { arrangeAll, defaultLayout, keysOf, type Layout } from '../../src/workspace/layoutModel';
+import { arrangeAll, defaultLayout, keysOf, tierTree, type Layout } from '../../src/workspace/layoutModel';
 import { largestComponent } from '../../src/workspace/persona';
 import { panelKeyAction, runPanelKeyAction, titleDoubleClick, type KeyLike } from '../../src/components/panelKeys';
 
@@ -40,7 +40,8 @@ describe('FR-014 AC-017 / FR-110 AC-135 レイアウトのストア', () => {
     const st = useLayout.getState();
     expect(st.persona).toBe('IT');
     expect(st.maximized).toBeNull();
-    expect(keysOf(effectiveLayout(st)).sort()).toEqual(['architecture', 'knowledge-graph', 'kpi-okr', 'products']);
+    // FR-296: IT の既定は 3 個（architecture・knowledge-graph・products）。FR-243 AC-584 の 4 つ以上は一覧表で補う
+    expect(keysOf(effectiveLayout(st)).sort()).toEqual(['architecture', 'knowledge-graph', 'products', 'table']);
   });
 
   // FR-014 AC-017
@@ -93,6 +94,23 @@ describe('FR-014 AC-017 / FR-110 AC-135 レイアウトのストア', () => {
     expect(st.maximized).toBeNull();
   });
 
+  // FR-185 AC-393
+  it('FR-185 AC-393 境界のドラッグ中は保存を保留し（ポインター移動ごとの書き込みをしない）、離したときに 1 度だけ最新の配置を書く', async () => {
+    const { useLayout, storage, holdLayoutPersist, onLayoutPersistRelease } = await freshStore(ALL);
+    useLayout.getState().setPersona('事業部門');
+    const keys = keysOf(useLayout.getState().layouts['事業部門'] ?? defaultLayout('事業部門'));
+    const before = storage.getItem('edb.layout');
+    let released = 0;
+    onLayoutPersistRelease(() => { released++; });
+    holdLayoutPersist(true);
+    for (let i = 0; i < 5; i++) useLayout.getState().resizeByKeys(keys[0]!, keys[1]!, 0.01);
+    expect(storage.getItem('edb.layout')).toBe(before); // 保留中は書かない
+    const held = useLayout.getState().layouts['事業部門'];
+    holdLayoutPersist(false);
+    expect(released).toBe(1);
+    expect(JSON.parse(storage.getItem('edb.layout')!).state.layouts['事業部門']).toEqual(held); // 離したときに書く
+  });
+
   // FR-014 AC-017
   it('FR-014 AC-017 merge: 壊れた保存値（不正なペルソナ・不正な木・型違い）は捨て、有効な分だけ取り込む', async () => {
     const good = defaultLayout('IT');
@@ -113,7 +131,8 @@ describe('FR-014 AC-017 / FR-110 AC-135 レイアウトのストア', () => {
   it('FR-014 AC-017 merge: 保存値が壊れた JSON でも起動でき、既定のレイアウトになる', async () => {
     const { useLayout, effectiveLayout } = await freshStore(ALL, '{壊れ');
     expect(useLayout.getState().persona).toBe('経営層');
-    expect(effectiveLayout(useLayout.getState())).toEqual(defaultLayout('経営層'));
+    // FR-296・FR-154 AC-273: 経営層の既定は 4 個（matrix・summary・ranking・kpi-okr。2 列 × 2 行）
+    expect(effectiveLayout(useLayout.getState())).toEqual(tierTree('matrix', ['summary', 'kpi-okr'], ['ranking']));
   });
 
   // FR-014 AC-017
@@ -154,7 +173,7 @@ describe('FR-012 FR-014 AC-017 既定が空になるときの退避（暫定）'
   // FR-012 FR-112 経営層の既定にはキャンバスが背景の全体図として残る（§7 の表）。既定は情報の階層の配置（FR-243・FR-244）: 主役が左上で最大、補助が右、詳細（キャンバス）が下
   it('FR-112 §7 経営層の既定のレイアウトにはキャンバスが含まれ、2×2 マトリクスが最大の領域になる', () => {
     const l = defaultLayout('経営層');
-    expect(keysOf(l)).toEqual(['matrix', 'summary', 'kpi-okr', 'ranking']);
+    expect(keysOf(l).sort()).toEqual(['kpi-okr', 'matrix', 'ranking', 'summary']); // FR-296 AC-800・FR-154 AC-273: 既定の同時表示は 4 個以内（経営層は 4）
     expect(largestComponent(l)).toBe('matrix');
   });
 

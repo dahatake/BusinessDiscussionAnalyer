@@ -16,6 +16,20 @@ const NEW_3D = ['table', 'matrix', 'ranking', 'issue-solution', 'discussion-tree
 
 const viewState = (page: Page, key: string) => hook<ViewState>(page, 't.view.state(a)', key);
 
+/**
+ * 一覧表の絞り込みの値を読む。FR-296 の同時表示の上限で、一覧表が最小化（FR-295 の一覧に残る）されて中身が描かれていないときは、
+ * 一覧表を再表示して読み、元の画面へ戻る（絞り込みの値の一致の判定は緩めない）。
+ */
+async function readFilter(page: Page): Promise<string> {
+  const field = () => component(page, 'table').getByRole('textbox', { name: /絞り込み/, includeHidden: true });
+  if ((await field().count()) > 0) return field().inputValue();
+  const prev = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.closest('[data-testid^="component-"]:not([data-testid="component-menu"]):not([data-testid="component-actions"]):not([data-testid="component-data"])')?.getAttribute('data-testid')?.replace('component-', '') ?? null);
+  await gotoScreen(page, 'table');
+  const v = await field().inputValue();
+  if (prev && prev !== 'table') await gotoScreen(page, prev);
+  return v;
+}
+
 /** 選択・絞り込み・時刻・期間（NFR-UX-001 の保持の対象）を読む */
 async function keptState(page: Page) {
   // 期間・時刻の操作も裏のタブに回ることがあるため、隠れた要素も含めて読む（表示の有無で値が変わったと誤判定しない）
@@ -27,7 +41,7 @@ async function keptState(page: Page) {
     selection: await page.getByTestId('selection-indicator').innerText(),
     // 一覧表は最小の幅の規則（FR-150 など）でほかの画面と同じタブにまとまり裏のタブに回ることがある。
     // 裏のタブでも絞り込みの値は保たれているべきなので、隠れた要素も含めて読む（値の一致の判定は緩めない）。
-    filter: await component(page, 'table').getByRole('textbox', { name: /絞り込み/, includeHidden: true }).inputValue(),
+    filter: await readFilter(page),
     time: await page.getByRole('slider', { name: '時間軸' }).first().getAttribute('aria-valuenow'),
     period: (await period.count()) ? ((await period.getAttribute('aria-valuenow')) ?? (await period.inputValue().catch(() => ''))) : null,
   };

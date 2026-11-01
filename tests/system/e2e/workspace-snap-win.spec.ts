@@ -49,6 +49,8 @@ function near(actual: Box, expected: Box, ws: Box, msg: string) {
 }
 
 test.describe('FR-152 Windows 風スナップのプレビューと最大化・共有境界のリサイズ', () => {
+  // FR-296 AC-800/801: 既定の構成の下限（360x240）と作業領域のゾーンにより、1600x900 では 2 行目が画面外になるため、画面の高さを広げて前提を揃える（検証内容は変えない）。
+  test.use({ viewport: { width: 1600, height: 1400 } });
   // FR-152 AC-793（上端=最大化。ほかのコンポーネントは重ならず背面か非表示）
   test('FR-152 AC-793 上端へ近づけると最大化のプレビューが半透明で出て、離すと作業領域いっぱいに最大化され、ほかのものは重ならず背面か非表示', async ({ page, start }) => {
     await start();

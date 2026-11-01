@@ -112,10 +112,12 @@ describe('FR-243 AC-585 AC-586 / FR-244 AC-588 AC-589 ストア', () => {
     const { useLayout, effectiveLayout, autoLayoutFor } = await freshStore();
     const { defaultLayout, PERSONAS, tierTree } = await import('../../src/workspace/layoutModel');
     const st = useLayout.getState();
+    // FR-296・FR-154 AC-273: 経営層は 4 個（matrix・summary・ranking・kpi-okr）なので、FR-243 AC-584 の最低 4 つを満たし、補いは働かない
+    const supplemented = tierTree('matrix', ['ranking', 'kpi-okr', 'summary'], []);
     expect(JSON.stringify(effectiveLayout(st))).toBe(JSON.stringify(defaultLayout('経営層')));
     // FR-043 AC-054: 廃止後の現場既定は3画面。FR-243 AC-584の最低4画面は一覧表で補う。
     for (const p of PERSONAS) {
-      const expected = p === '現場' ? tierTree('twin-view', ['kpi-okr'], ['gantt', 'table']) : defaultLayout(p);
+      const expected = p === '現場' ? tierTree('twin-view', ['kpi-okr'], ['gantt', 'table']) : p === '経営層' ? supplemented : p === 'IT' ? tierTree('architecture', ['knowledge-graph'], ['products', 'table']) : defaultLayout(p);
       expect(JSON.stringify(autoLayoutFor(p, undefined))).toBe(JSON.stringify(expected));
     }
     st.setTier('summary', 'detail');

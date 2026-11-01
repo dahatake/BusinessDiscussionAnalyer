@@ -1,7 +1,7 @@
 // スナップ・最大化・共有境界のリサイズの、自由配置（作業領域に対する絶対配置）での純粋なモデル（FR-152・FR-184）。React に依存しない。
 // 重ならない配置（スナップ・分割・最大化・共有境界のリサイズ）は、ここで重ならないことを保証する。
 // 自由な移動（FR-173）は重なりを許すので、ここは通らない（Q-066 B 2026-10-27）。
-import { MIN_COMPONENT_WIDTH } from './autosize';
+import { MIN_WINDOW_W as MIN_COMPONENT_WIDTH } from './windowLimits';
 import { MIN_H, clampInto, hasOverlap, overlapArea, packGrid, repack, type Bounds, type PxMap, type PxRect } from './freeLayout';
 
 const EPS = 1;

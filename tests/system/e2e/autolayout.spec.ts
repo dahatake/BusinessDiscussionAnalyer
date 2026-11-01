@@ -178,10 +178,12 @@ test.describe('FR-243 手で動かした・ピン止めの配置の保持と、�
     await h.focus();
     await page.keyboard.press('h');
     await expect(h).toBeHidden();
-    // 自由な移動は重なりを許す（Q-066 B）。A は作業領域の中央へ向けて縦にだけ 60px 動かす（横へ動かすと隣と帯が重なりスナップ・再配置の対象になるため。端のスナップ範囲にも入れない）。
+    // 自由な移動は重なりを許す（Q-066 B）。A は作業領域の中央へ向けて縦にだけ 60px 動かす
     const ha = await component(page, a).getByRole('heading').first().boundingBox();
     const wsb = await page.getByTestId('workspace').boundingBox();
-    const dx = 0;
+    // FR-296 の既定（2 列×2 行）では、縦 60px だと隣の主役の下辺領域に落ちて分割配置（実質 no-op）になる。主役から離れる横方向へ、領域の外に出る距離だけ動かす。
+    const cx = ha!.x + ha!.width / 2;
+    const dx = cx < wsb!.x + wsb!.width / 2 ? -300 : 300;
     const dy = ha!.y + ha!.height / 2 < wsb!.y + wsb!.height / 2 ? 60 : -60;
     await page.mouse.move(ha!.x + ha!.width / 2, ha!.y + ha!.height / 2);
     await page.mouse.down();

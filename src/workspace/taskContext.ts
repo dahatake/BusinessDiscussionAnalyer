@@ -1,6 +1,6 @@
 // タスク文脈（Task Context）の取り込み・復元と、タスクワークスペースの切替・別のウィンドウへの移動（FR-298 AC-808・AC-809）。
 // タスク文脈 = 開いているコンポーネントの配置・選択・絞り込み・入力中の内容・ズームなど、作業の文脈。タスクワークスペースごとに独立に保存・復元する。
-import { useLayout } from '../store/layout';
+import { isLayoutPersistHeld, onLayoutPersistRelease, useLayout } from '../store/layout';
 import { useRetainedStore } from '../store/retained';
 import { useSelectionStore } from '../store/selection';
 import { STORAGE_KEY, activeWorkspace, useTaskWorkspaces, type TaskContext } from '../store/taskWorkspaces';
@@ -117,7 +117,19 @@ export function bootTaskWorkspaces(): void {
   };
   useRetainedStore.subscribe(later);
   useSelectionStore.subscribe(later);
-  useLayout.subscribe(later);
+  // 配置の保存データ（edb.layout）は変更と同時に書かれる。文脈の中の配置も同時に書き、閲覧・操作の結果が遅れて別の保存データに現れないようにする（FR-279 AC-718・AC-719）。
+  // 最後に使った順（usedAt）・最小化で隠した画面（parked）など、保存しない状態の変化では書かない
+  let heldDirty = false;
+  useLayout.subscribe((s, prev) => {
+    if (applying) return;
+    const a = s as unknown as Record<string, unknown>;
+    const b = prev as unknown as Record<string, unknown>;
+    if (s.persona !== prev.persona || PER_PERSONA.some((k) => a[k] !== b[k])) {
+      // 境界のドラッグ中は書かず、離したときに 1 度だけ書く（FR-185 AC-393）
+      if (isLayoutPersistHeld()) heldDirty = true; else flushContext();
+    }
+  });
+  onLayoutPersistRelease(() => { if (heldDirty) { heldDirty = false; flushContext(); } });
   window.addEventListener('pagehide', () => flushContext());
   // 別のウィンドウでの変更（ロール・割合・モード・文脈）をこのウィンドウへ反映する
   window.addEventListener('storage', (e) => {

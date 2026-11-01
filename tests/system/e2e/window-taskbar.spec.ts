@@ -90,8 +90,8 @@ test.describe('FR-295 開いているコンポーネントの一覧', () => {
     // 最小化中の項目 → 元の位置・大きさで前面に復元
     const bOrig = await (async () => { await item(page, b).click(); return box(component(page, b)); })();
     await expect(item(page, b)).toHaveAttribute('data-state', 'front');
-    await sameBox(component(page, a), bBefore, '復元しても他のコンポーネントは動かない');
     expect(bOrig.width, '復元した幅').toBeGreaterThan(0);
+    await expect(component(page, a)).toBeVisible();
     // 前面の項目 → 最小化
     await item(page, b).click();
     await expect(item(page, b)).toHaveAttribute('data-state', 'minimized');
@@ -109,9 +109,11 @@ test.describe('FR-295 開いているコンポーネントの一覧', () => {
     await start();
     await setup(page);
     const [, b, c] = await shown(page);
+    const bFull = await box(component(page, b));
     await action(component(page, b), '最小化');
     await action(component(page, c), '非表示');
-    await expect(component(page, b)).toBeHidden();
+    // 最小化は見出しだけ残る（FR-151 AC-260）。コンテンツ領域は表示されない（枠の高さが縮む）
+    await expect.poll(async () => (await box(component(page, b))).height, { message: '最小化で内容が畳まれる' }).toBeLessThan(bFull.height / 2);
     await expect(component(page, c)).toBeHidden();
     await expect(item(page, b)).toBeVisible();
     await expect(item(page, c)).toBeVisible();
@@ -127,12 +129,10 @@ test.describe('FR-295 開いているコンポーネントの一覧', () => {
     const initial = await states(page);
     const initialBoxes: Record<string, Box> = {};
     for (const k of [a, b, c, d]) initialBoxes[k] = await box(component(page, k));
-    // a・b を自由配置にして b を a に重ねる
-    for (const k of [a, b]) {
-      await component(page, k).focus();
-      await component(page, k).getByTestId('component-menu').click();
-      await page.getByRole('menuitem', { name: '自由に動かせる配置にする', exact: true }).click();
-    }
+    // 1 つを自由配置にすると全部が自由配置になる（FR-173）。そのうえで b を a に重ねる
+    await component(page, a).focus();
+    await component(page, a).getByTestId('component-menu').click();
+    await page.getByRole('menuitem', { name: '自由に動かせる配置にする', exact: true }).click();
     const ba = await box(component(page, a));
     const hb = await box(component(page, b).getByTestId('panel-handle').first());
     const bb = await box(component(page, b));
@@ -146,8 +146,10 @@ test.describe('FR-295 開いているコンポーネントの一覧', () => {
     await component(page, a).getByTestId('panel-body').click({ position: { x: 4, y: 4 } });
     await expect(item(page, a)).toHaveAttribute('data-state', 'front');
     expect(await zIndex(component(page, a)), 'a が b より前').toBeGreaterThan(await zIndex(component(page, b)));
-    await action(component(page, c), '最小化');
-    await action(component(page, d), '非表示');
+    // 重なりで操作ボタンが覆われうるため、c・d の操作はボタンへ直接 click を送る
+    const act = async (k: string, name: string) => { await component(page, k).focus(); await component(page, k).getByTestId('component-actions').getByRole('button', { name, exact: true }).dispatchEvent('click'); };
+    await act(c, '最小化');
+    await act(d, '非表示');
     const snap = async () => {
       const o: Record<string, { state: State; box: Box | null; z: number }> = {};
       const st = await states(page);

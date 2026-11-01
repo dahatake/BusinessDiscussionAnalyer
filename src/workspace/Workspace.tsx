@@ -7,10 +7,14 @@ import { useSnapMotion, motionAllowed } from '../motion/useFoldMotion';
 import { prefersReducedMotion, useAnimation } from '../store/animation';
 import { SNAP_LABEL, defaultSnapKind, nearestCorner, snapKindsFor, snapRect, type Edge, type SnapKind, type SnapOpts } from './snap';
 import type { ScreenDefinition } from '../screens/types';
-import { effectiveLayout, personaKeys, useLayout, clampFloat, isPinned, type FloatRect } from '../store/layout';
+import { effectiveLayout, personaKeys, useLayout, clampFloat, isPinned, setWorkspaceArea, holdLayoutPersist, type FloatRect } from '../store/layout';
 import { EXPAND_RATIO, useSettings, type ExpandPosition } from '../store/settings';
 import { keysOf, prune, type DropZone, type LayoutNode, type Path, type SplitNode } from './layoutModel';
 import { MIN_COMPONENT_WIDTH, applyAutoSize, fitMinWidth } from './autosize';
+import { enforceMin, floorFloat, needHeight } from './windowLimits';
+import { WindowList } from './WindowList';
+import { IMMERSIVE_DIM_PERCENT, windowStates } from './windowStates';
+import { withOpacity } from '../theme/frameMaterial';
 import { PERSONA_PRIMARY } from './persona';
 import { areaPanDelta } from './areaPan';
 import { useAreaViewport } from './useAreaViewport';
@@ -94,6 +98,8 @@ const useStyles = makeStyles({
   },
   noticeIdle: { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' },
   // 分割の木を入れる箱。拡大表示中は、余白で残りの領域に収める（FR-174）
+  // 没入表示の覆い（FR-297）。最大化したコンポーネント（zIndex 900・1000）のすぐ下
+  immersiveBackdrop: { position: 'absolute', inset: 0, zIndex: 800 },
   treeBox: { display: 'flex', flexDirection: 'column', flex: '1 1 0', minHeight: 'min(240px, 30vh)', minWidth: 0, boxSizing: 'border-box' },
   // 自由配置・拡大表示のコンポーネントの置き場（作業領域に対する絶対配置。重なりを許す。FR-173）
   floatBox: { position: 'absolute', display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, boxSizing: 'border-box', boxShadow: tokens.shadow16, borderRadius: tokens.borderRadiusMedium, overflow: 'hidden' },
@@ -152,6 +158,8 @@ const KEY_STEP = 0.02;
 
 /** 最小化したコンポーネントの見出しだけの高さと、横に並べたときの幅（4px グリッド。FR-151） */
 export const MINIMIZED_HEIGHT = 64;
+/** 木の高さに足す余裕（px）。下限ぎりぎりで主役と詳細が同じ大きさにならず、主役が最大のままになる（FR-296・FR-244） */
+const TREE_SLACK = 40;
 export const MINIMIZED_WIDTH = 240;
 
 const DRAG_THRESHOLD_PX = 4;
@@ -265,6 +273,7 @@ function Separator({ a, b, dir, size, onActive }: { a: string; b: string; dir: '
     const r = parent.getBoundingClientRect();
     start.current = { pos: vertical ? e.clientX : e.clientY, total: vertical ? r.width : r.height, last: 0 };
     e.currentTarget.setPointerCapture(e.pointerId);
+    holdLayoutPersist(true);
     onActive(true);
     e.preventDefault();
   };
@@ -279,6 +288,7 @@ function Separator({ a, b, dir, size, onActive }: { a: string; b: string; dir: '
   const end = (e: PointerEvent<HTMLDivElement>) => {
     start.current = null;
     onActive(false);
+    holdLayoutPersist(false);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -325,9 +335,28 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   const autoSize = useLayout((st) => st.autoSize);
   const manualKeys = useLayout((st) => st.manual[st.persona]);
   const maximized = useLayout((st) => st.maximized);
+  const usedAt = useLayout((st) => st.usedAt);
+  const parkedRaw = useLayout((st) => st.parked[st.persona]);
+  const parkedMap = parkedRaw ?? [];
   const snapMotion = useSnapMotion();
   const minimizedKeys = useLayout((st) => st.minimized[st.persona]);
   const minSet = useMemo(() => new Set(minimizedKeys ?? []), [minimizedKeys]);
+  // 前面のコンポーネント（FR-295 の一覧と同じ求め方。FR-297 AC-803: 前面の見出しの強調に使う）
+  const frontKey = useMemo(() => {
+    const st = windowStates({ keys: screens.filter((sc) => !!sc.component && !sc.modal).map((sc) => sc.key), layout: base, minimized: minSet, closed: new Set(), usedAt });
+    return Object.keys(st).find((k) => st[k] === 'front') ?? null;
+  }, [screens, base, minSet, usedAt]);
+  // 没入表示（FR-297 AC-802）: 最大化中の Esc は、ほかの処理（切替の取消・ドラッグの中止・コンポーネント内の Esc）が先に使わなかったときだけ通常表示に戻す
+  useEffect(() => {
+    if (maximized === null) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      useLayout.getState().setMaximized(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [maximized]);
   // ピン止めしたコンポーネントと、ピン止めした位置と大きさ（作業領域に対する割合。FR-215・FR-216）
   const pinnedMap = useLayout((st) => st.pinned[st.persona]);
   const pinSet = useMemo(() => new Set(Object.keys(pinnedMap ?? {})), [pinnedMap]);
@@ -364,6 +393,40 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     const top = Math.round(t.getBoundingClientRect().top - root.getBoundingClientRect().top);
     if (top !== treeTop) setTreeTop(top);
   });
+  // 最大化したコンポーネントが作業領域全体を覆うよう、スクロールを先頭へ戻す（FR-296 で木が高くなり、作業領域がスクロールするため。FR-013 AC-592）。
+  // 通常表示へ戻るときは、最大化の前のスクロール位置へ戻す（FR-297 AC-802: 最大化の前後で見た目の位置を変えない）
+  const maxNowRef = useRef<string | null>(maximized);
+  maxNowRef.current = maximized;
+  const savedScroll = useRef(0);
+  useEffect(() => {
+    const ws = rootRef.current?.closest('[data-testid="workspace"]');
+    if (!ws) return;
+    const onScroll = () => { if (maxNowRef.current === null) savedScroll.current = ws.scrollTop; };
+    ws.addEventListener('scroll', onScroll, { passive: true });
+    return () => ws.removeEventListener('scroll', onScroll);
+  }, []);
+  const wasMaximized = useRef(false);
+  const focusKeyRef = useRef<string | null>(null);
+  focusKeyRef.current = focusKey;
+  const focusBeforeMax = useRef<string | null>(null);
+  const maxPrev = useRef<string | null>(null);
+  const restoredByButton = useRef(false);
+  useEffect(() => {
+    const ws = rootRef.current?.closest('[data-testid="workspace"]');
+    if (maximized === null) {
+      if (wasMaximized.current && ws) ws.scrollTop = savedScroll.current;
+      // 操作中の自動の拡大（FR-143）は一時的なものなので、没入表示から戻るときは外し、保存した位置・大きさ（AC-591）へ戻す（FR-297 AC-802）
+      // 見出しの「通常表示」で戻すときは、最大化の前に操作中だった状態へ戻す（FR-149 AC-254: 最大化の前後で幅が変わらない）。Esc・一覧からの復帰は外す（FR-297 AC-802）
+      if (wasMaximized.current && !compact) setFocusKey(restoredByButton.current && focusBeforeMax.current === maxPrev.current ? focusBeforeMax.current : null);
+      restoredByButton.current = false;
+      wasMaximized.current = false;
+      return;
+    }
+    if (!wasMaximized.current) focusBeforeMax.current = focusKeyRef.current;
+    maxPrev.current = maximized;
+    wasMaximized.current = true;
+    if (ws) ws.scrollTop = 0;
+  }, [maximized]);
   const [drag, setDrag] = useState<DragState | null>(null);
   /** スナップ前の大きさ（作業領域に対する割合。保存しない）。端から引き離したとき、この大きさへ戻す。スナップしたものは、ほかのスナップで動かさない（FR-152 AC-795） */
   const snapMem = useRef(new Map<string, { w: number; h: number }>());
@@ -448,8 +511,10 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     const sized = applyAutoSize(treeBase, {
       enabled: autoSize && !expandedOut, focus: focusKey, primary: PERSONA_PRIMARY[persona], manual: new Set(manualKeys ?? []), width: treeWidth,
     });
-    return fitMinWidth(sized, treeWidth, [picked, focusKey]);
-  }, [treeBase, compact, autoSize, expandedOut, focusKey, persona, manualKeys, treeWidth, picked]);
+    const fitted = fitMinWidth(sized, treeWidth, [picked, focusKey]);
+    // 自動のサイズ調整・境界の操作・スナップのどれでも、各コンポーネントの幅・高さが PARAM-134・PARAM-135 を下回らないようにする（FR-296 AC-801）
+    return fitted && treeWidth > 0 ? enforceMin(fitted, treeWidth, Math.max(height - treeTop, needHeight(fitted) + TREE_SLACK)) : fitted;
+  }, [treeBase, compact, autoSize, expandedOut, focusKey, persona, manualKeys, treeWidth, picked, height, treeTop]);
 
   // FR-299: ゾーンの操作（Snap・Group・Move）の補助。Snap・Group は、割り当て済みのコンポーネントの位置も、ゾーンの矩形へ置き直す
   const [snapNonce, setSnapNonce] = useState(0);
@@ -520,6 +585,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         announce(tr('{label}をピン止めしました', { label }));
       },
       maximized: isMax,
+      front: frontKey === key,
+      compact,
       expanded: expandedOut === key,
       toggleExpand: () => actions().toggleExpanded(key),
       floating: isFloat,
@@ -535,10 +602,11 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       z: isFloat && zRank >= 0 ? 3 + zRank : undefined,
       minimized: minSet.has(key),
       toggleMinimize: () => a.setMinimized(key, !minSet.has(key)),
-      visible: group.length === 1 || active === key,
+      // 領域が足りず木の外に隠している（parked）ものは、見えていない扱い（詳細パネルの置き場などに数えない）
+      visible: (group.length === 1 || active === key) && !(parkedMap.includes(key) && !keysOf(layout).includes(key) && !outKeys.includes(key)),
       inTabs: group.length > 1,
       peers: keysOf(layout).filter((k) => !group.includes(k) && !pinSet.has(k)).map((k) => ({ key: k, label: byKey(k)?.label ?? k })),
-      toggleMaximize: () => actions().setMaximized(actions().maximized === key ? null : key),
+      toggleMaximize: () => { if (actions().maximized === key) restoredByButton.current = true; actions().setMaximized(actions().maximized === key ? null : key); },
       restore: () => actions().setMaximized(null),
       hide: () => a.hideComponent(key),
       move: (d) => {
@@ -733,11 +801,13 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
     el.setPointerCapture(e.pointerId);
     e.preventDefault();
     for (const k of [...bd.before, ...bd.after]) markManual(k);
+    holdLayoutPersist(true);
     const move = (ev: globalThis.PointerEvent) => shiftBorder(bd, base, bd.dir === 'v' ? ev.clientX - sx : ev.clientY - sy, bounds);
     const end = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', end);
       el.removeEventListener('pointercancel', end);
+      holdLayoutPersist(false);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', end);
@@ -845,7 +915,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         const at = { x: pr.x * b.w, y: pr.y * b.h, w: pr.w * b.w, h: pr.h * b.h };
         rects = resolveAround({ ...rects, [k]: at }, k, b, others) ?? resolveOverlaps({ ...rects, [k]: at }, k, b);
       } else {
-        const fixed = new Set([...pinSet].filter((p) => p in rects));
+        // ピン止めしたものと、利用者が手で動かしたものは、新しく置くもののために動かさない（FR-243 AC-585）
+        const fixed = new Set([...pinSet, ...(useLayout.getState().moved[useLayout.getState().persona] ?? [])].filter((p) => p in rects));
         // 非表示にする前の場所が空いていれば、そこへ戻す（ほかを動かさない。FR-243）。空いていなければ空きを探す
         const prev = useLayout.getState().hiddenRects[useLayout.getState().persona]?.[k];
         const back = prev ? clampInto({ x: prev.x * b.w, y: prev.y * b.h, w: prev.w * b.w, h: prev.h * b.h }, b) : null;
@@ -992,7 +1063,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (!el) return;
-    const measure = () => { const r = el.getBoundingClientRect(); setWidth(r.width); setHeight(r.height); setCompact(isCompactWidth(r.width)); };
+    const measure = () => { const r = el.getBoundingClientRect(); setWidth(r.width); setHeight(r.height); setCompact(isCompactWidth(r.width)); setWorkspaceArea(r.width, r.height); };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(measure);
@@ -1017,6 +1088,9 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
   };
   if (layout) collect(layout);
   outKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
+  // 領域が足りなくなって最小化したもの（木の外）は、隠したまま残す（一覧から戻すとき、状態と最新の内容を保つ。FR-296 AC-801）
+  const parkedKeys = parkedMap.filter((k) => !groups.has(k) && !!byKey(k)?.component);
+  parkedKeys.forEach((k) => groups.set(k, { tabs: [k], active: k }));
 
   // 見出しのメニューの操作を、コマンドパレットからも実行できるようにする（操作中のコンポーネントが対象。NFR-UX-018 AC-481・FR-215 AC-494）
   const lastPaneKey = useRef<string | null>(null);
@@ -1369,7 +1443,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       if (k) {
         focusTimer.current = window.setTimeout(() => {
           focusTimer.current = null;
-          if (!expandedRef.current) setFocusKey(k);
+          // 没入表示の最中・復帰の後に遅れて発火して、FR-143 の拡大が再び掛からないようにする（FR-297）
+          if (!expandedRef.current && maxNowRef.current === null) setFocusKey(k);
         }, POINTER_FOCUS_DELAY_MS);
         focusTimerKey.current = k;
       }
@@ -1396,6 +1471,11 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       window.removeEventListener('pointercancel', up, true);
     };
   }, []);
+  // 没入表示の切り替わり（最大化・復帰）で、遅れて予約された操作中の拡大は捨てる（FR-297）
+  useEffect(() => {
+    pendingFocus.current = null;
+    if (focusTimer.current !== null) { window.clearTimeout(focusTimer.current); focusTimer.current = null; }
+  }, [maximized]);
   const onFocusCapture = (e: FocusEvent<HTMLDivElement>) => {
     lastFocused.current = e.target as HTMLElement;
     for (let n: Element | null = e.target as Element; n && n !== e.currentTarget; n = n.parentElement) {
@@ -1508,7 +1588,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       <div data-testid="notifications" data-suppressed={taskWs.mode === 'focus' ? 'true' : 'false'}>
         <div data-testid="workspace-notice" role="status" aria-live="polite" className={notice && taskWs.mode !== 'focus' ? s.notice : s.noticeIdle}>{notice?.text ?? ''}</div>
       </div>
-      <div ref={treeRef} className={s.treeBox} style={inset ? { ...inset, minHeight: 0 } : undefined}>
+      <WindowList screens={screens} layout={base} minimized={minSet} />
+      <div ref={treeRef} className={s.treeBox} style={inset ? { ...inset, minHeight: 0 } : (base && !compact ? { minHeight: needHeight(base) + TREE_SLACK } : undefined)}>
         {layout ? (compact ? renderStack(layout) : render(layout, [])) : (
           <Text className={s.empty} size={400}>{outKeys.length > 0 ? '' : t('表示中のコンポーネントがありません。左のドックから再表示してください。')}</Text>
         )}
@@ -1517,8 +1598,10 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         // FR-013 AC-591/592: Panel fills its containing block, so maximize the
         // floating host too. Derive only the display rectangle; never persist it.
         const isMax = maximized === k;
-        const r = isMax ? { x: 0, y: 0, w: 1, h: 1 } : expandedOut === k ? expandRect(expandPos) : (pinnedMap?.[k] ?? live?.[k] ?? floatMap?.[k]);
-        if (!r || !byKey(k)?.component) return null;
+        const r0 = isMax ? { x: 0, y: 0, w: 1, h: 1 } : expandedOut === k ? expandRect(expandPos) : (pinnedMap?.[k] ?? live?.[k] ?? floatMap?.[k]);
+        if (!r0 || !byKey(k)?.component) return null;
+        // 以前に保存された小さい大きさ・操作の結果の小さい大きさは、下限（PARAM-134・PARAM-135）へ補正して描く（FR-296 AC-801）
+        const r = isMax || expandedOut === k ? r0 : floorFloat(r0, width, height);
         const rank = zOrder.indexOf(k);
         const dragged = drag?.key === k && !!live;
         return (
@@ -1533,6 +1616,15 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
           </div>
         );
       })}
+      {maximized !== null ? (
+        // 没入表示（FR-297 AC-802）: 最大化したコンポーネントの背面を PARAM-137 % 暗くし、背面への操作を通さない
+        <div
+          data-testid="immersive-backdrop"
+          aria-hidden
+          className={s.immersiveBackdrop}
+          style={{ backgroundColor: withOpacity([0, 0, 0], IMMERSIVE_DIM_PERCENT / 100) }}
+        />
+      ) : null}
       {floatBorders.map((bd) => (
         <div
           key={`border-${bd.dir}-${bd.before.join('+')}|${bd.after.join('+')}`}
@@ -1565,6 +1657,12 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
             <Button key={k} size="small" onClick={() => fillRemaining(k)}>{byKey(k)?.label ?? k}</Button>
           ))}
           <Button size="small" appearance="subtle" onClick={() => setAssist(null)}>{t('閉じる')}</Button>
+        </div>
+      ) : null}
+      {parkedKeys.length > 0 ? (
+        // visibility:hidden: Tabster は display:none の中の SVG 要素（offsetParent を持たない。グラフのノード）を「見えている」と見なして Tab の行き先にし、フォーカスが動かない罠になる（NFR-A11Y-001 AC-170）。visibility は継承され、Tabster も見る
+        <div hidden aria-hidden data-testid="parked-windows" style={{ visibility: 'hidden' }}>
+          {parkedKeys.map((k) => <Slot key={k} host={hostOf(k)} hidden />)}
         </div>
       ) : null}
       {[...groups.entries()].map(([key, g]) => {

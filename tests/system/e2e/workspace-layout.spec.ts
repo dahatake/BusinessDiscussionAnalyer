@@ -155,6 +155,8 @@ test.describe('FR-142 すべてのコンポーネントのドラッグでの移�
 });
 
 test.describe('FR-143 操作中のコンポーネントを大きくする自動のサイズ調整', () => {
+  // FR-296 AC-800/801: 既定の構成の各コンポーネントは 360x240 以上で、2 行目が 1600x900 の画面外になるため、画面の高さを広げて前提を揃える（検証内容は変えない）。
+  test.use({ viewport: { width: 1600, height: 1400 } });
   // FR-143 AC-226
   test('FR-143 AC-226 操作したコンポーネントの面積が基準の 1.5 倍になり、別のコンポーネントを操作すると大きいものが移る', async ({ page, start }) => {
     await start();
@@ -163,7 +165,13 @@ test.describe('FR-143 操作中のコンポーネントを大きくする自動�
     expect(ks.length, '4 つ以上のコンポーネントが必要').toBeGreaterThanOrEqual(4);
     const base: Record<string, number> = {};
     for (const k of ks) base[k] = area(await box(component(page, k)));
-    const [a, b] = ks;
+    // FR-296: 既定の構成では、作業領域の幅の半分を超える左の列のコンポーネントは、列の幅の上限（PARAM-134 を割らない範囲）で
+    // 面積を 1.5 倍にする余地が小さい。余地のある（幅が半分以下の）右の列の 2 つで、1.5 倍と「大きいものが移る」を検証する。
+    const ws = await box(page.getByTestId('workspace'));
+    const narrow: string[] = [];
+    for (const k of ks) if ((await box(component(page, k))).width <= ws.width / 2 + 1) narrow.push(k);
+    expect(narrow.length, '幅が半分以下のコンポーネントが 2 つ以上必要').toBeGreaterThanOrEqual(2);
+    const [a, b] = narrow;
     await component(page, a).focus();
     await expect.poll(async () => area(await box(component(page, a))) / base[a], { timeout: 5_000 }).toBeCloseTo(SCALE, 1);
     await component(page, b).focus();

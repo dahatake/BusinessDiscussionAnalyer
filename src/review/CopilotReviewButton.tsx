@@ -51,6 +51,7 @@ export function CopilotReviewButton() {
         relayUrl, packId, consent: granted,
         includesPerson: !!data && countPersons(data) > 0,
         view: () => fetchFoundryView(relayUrl, packId),
+        dismissConfirm: () => answerSend(false),
         usage: { check: () => usage.check(), count: (n, out) => usage.count(n, undefined, undefined, out) },
         confirmSend: async (targets) => { const ok = await askSend(targets); if (ok) useReviewStore.getState().start(); return ok; },
         confirmPerson: () => gatePersonConfirm({ destination: 'ai', scopeLabel: reviewScopeLabel(), data: data!, consent: record, confirm: confirmViaUi }),

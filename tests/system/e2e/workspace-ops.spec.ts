@@ -484,6 +484,32 @@ test.describe('FR-154 KPI/OKR の既定の表示', () => {
       await start();
       await selectPersona(page, persona);
       const c = component(page, 'kpi-okr');
+      if (persona === '事業部門') {
+        // 事業部門: 同時表示は AC-032 の 4 つのまま。KPI/OKR は最小化（見出しだけ）で一覧にあり、非表示ではない（FR-295 §34）
+        const item = page.getByTestId('window-list').getByTestId('window-list-item').and(page.locator('[data-component-key="kpi-okr"]'));
+        await expect(item).toHaveCount(1);
+        await expect(item).toHaveAttribute('data-state', 'minimized');
+        await expect(item).toContainText('最小化');
+        // 最小化中は内容（達成度の数値）が表示されていない
+        await expect(c.getByTestId('kpi-achievement')).toHaveCount(0);
+        // 既定の情報表現が最大の領域のまま（AC-137）。最小化の KPI/OKR は奪わない
+        const ks = await topKeys(page);
+        const areas: Record<string, number> = {};
+        for (const k of ks.filter(k => k !== 'kpi-okr')) { const b = await box(component(page, k)); areas[k] = b.width * b.height; }
+        const largest = Object.entries(areas).sort((x, y) => y[1] - x[1])[0][0];
+        // 1 操作で表示される
+        await item.click();
+        await expect(item).toHaveAttribute('data-state', /front|visible/);
+        await expect(c).toBeVisible();
+        await expect(c).toContainText(/Objective|目標/);
+        await expect(c).toContainText(/Key Result|KR/);
+        await expect(c).toContainText(/現在/);
+        await expect(c).toContainText(/目標/);
+        await expect(c).toContainText(/達成|進行中|未着手/);
+        await expect(c.getByTestId('kpi-achievement').first()).toContainText(/\d/);
+        expect(largest, '既定の情報表現が最大の領域でない').not.toBe('kpi-okr');
+        return;
+      }
       await expect(c).toBeVisible();
       await expect(c).toContainText(/Objective|目標/);
       await expect(c).toContainText(/達成|進行中|未着手/);

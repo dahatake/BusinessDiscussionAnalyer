@@ -3,6 +3,7 @@
 // 顧客パックにサンプルの項目があるときは、見出しの横に「サンプル」を明記する（FR-008）。
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { Badge, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
+import { Star16Filled } from '@fluentui/react-icons';
 import { hasSampleData } from '../data/sample';
 import { usePackStore } from '../store/pack';
 import { useFoldClass } from '../motion/useFoldMotion';
@@ -34,6 +35,7 @@ export function isNarrowPane(width: number): boolean {
  *  見出しの操作に「ビュー」ボタン（文字で現在の表示を示す。FR-217・FR-218）が加わった分（約 60px）だけ、360px から広げた */
 const COMPACT_PANE_PX = 420;
 
+const HOVER_SETTLE_MS = 600;
 const useStyles = makeStyles({
   // 外枠（ワークスペースの外では従来どおりの幅と余白）
   root: { display: 'flex', flexDirection: 'column', maxWidth: '960px' },
@@ -59,7 +61,14 @@ const useStyles = makeStyles({
     ':focus-visible': { outline: `${tokens.strokeWidthThick} solid ${tokens.colorStrokeFocus2}`, outlineOffset: '-2px' },
   },
   paneBody: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minHeight: 0, minWidth: 0, overflow: 'auto', boxSizing: 'border-box', rowGap: tokens.spacingVerticalS, padding: `0 ${tokens.spacingHorizontalL} ${tokens.spacingVerticalS}` },
-  maximized: { position: 'absolute', inset: 0, zIndex: 900, height: 'auto' },
+  maximized: { position: 'absolute', inset: 0, zIndex: 900, height: 'auto', paddingBlockStart: `calc(${tokens.spacingVerticalXXXL} + ${tokens.spacingVerticalS})` /* = WINDOW_LIST_HEIGHT_PX（40px）: 手前の一覧の下から始める（FR-297） */ },
+  // 前後の区別（FR-297 AC-803）: 背面は弱い影、前面は強い影（Fluent 2 のエレベーション）。ハイコントラストでは影が使えないので、前面の境界線を太くする（色だけに頼らない）
+  back: { boxShadow: tokens.shadow2 },
+  front: {
+    boxShadow: tokens.shadow16,
+    '@media (forced-colors: active)': { boxShadow: 'none', outline: `${tokens.strokeWidthThickest} solid CanvasText`, outlineOffset: `calc(-1 * ${tokens.strokeWidthThickest})` },
+  },
+  frontMark: { display: 'inline-flex', alignItems: 'center', flexShrink: 0, color: tokens.colorBrandForeground1, '@media (forced-colors: active)': { color: 'CanvasText' } },
   // 縁・角のつまみ（FR-224）。当たり判定は 8px 以上。ホバーで色の付いた線を見せる
   resize: { position: 'absolute', zIndex: 3, touchAction: 'none', ':hover': { backgroundColor: tokens.colorNeutralStrokeAccessible } },
   resizeE: { top: '16px', right: 0, bottom: '12px', width: '8px', cursor: 'ew-resize' },
@@ -172,12 +181,16 @@ export function Panel({ testId, title, description, maxWidth, children }: PanelP
   const [focused, setFocused] = useState(false);
   // ポインターを重ねている間も、見出しの操作を出す（FR-298 AC-805・AC-808: ロールへの割り当て・最大化をホバーから操作できる）
   const [hovered, setHovered] = useState(false);
+  // 表示した直後（配置が落ち着く前）にポインターの下へ入っただけのものは、重ねたものとして扱わない（動かしていないポインターで見出しの文字が出入りしない）
+  const mountedAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
   const [narrow, setNarrow] = useState(false);
   const [compact, setCompact] = useState(false);
   const minimized = pane?.minimized === true;
   const world = useWorldView(pane?.key ?? testId.replace(/^component-/, ''));
   // 最小化・復元の動き（NFR-UX-008。レイアウトは即座に切り替え、見た目だけを 200ms で整える）
   const foldMotion = useFoldClass(minimized);
+  // 没入表示への出入り（最大化・復元）の動き。最小化・復元と同じ Fluent 2 のモーションのトークン。動きの軽減・アニメ停止では付かない（FR-297 AC-804）
+  const immersiveMotion = useFoldClass(pane?.maximized === true);
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
@@ -219,9 +232,10 @@ export function Panel({ testId, title, description, maxWidth, children }: PanelP
       ref={ref}
       onFocus={onFocus}
       onBlur={onBlur}
-      onMouseEnter={pane ? () => setHovered(true) : undefined}
+      onMouseEnter={pane ? (e) => { if (e.movementX !== 0 || e.movementY !== 0 || performance.now() - mountedAt.current > HOVER_SETTLE_MS) setHovered(true); } : undefined}
+      onMouseMove={pane && !hovered ? (e) => { if (e.movementX !== 0 || e.movementY !== 0 || performance.now() - mountedAt.current > HOVER_SETTLE_MS) setHovered(true); } : undefined}
       onMouseLeave={pane ? () => setHovered(false) : undefined}
-      className={mergeClasses(s.root, pane ? s.pane : undefined, pane?.maximized ? s.maximized : undefined, foldMotion)}
+      className={mergeClasses(s.root, pane ? s.pane : undefined, pane && !pane.maximized ? (pane.front ? s.front : s.back) : undefined, pane?.maximized ? s.maximized : undefined, foldMotion, immersiveMotion)}
       style={maxWidth && !pane ? { maxWidth } : pane?.z !== undefined && !pane.maximized ? { position: 'relative', zIndex: pane.z } : undefined}
       aria-label={title}
       tabIndex={pane ? 0 : undefined}
@@ -269,6 +283,10 @@ export function Panel({ testId, title, description, maxWidth, children }: PanelP
             >
               {title}
             </Text>
+            {pane?.front ? (
+              // 前面の印（アイコン＋読み上げの名前）。強い影だけに頼らない（FR-297 AC-803）
+              <span data-testid="front-indicator" role="img" aria-label={t('前面')} title={t('前面')} className={s.frontMark}><Star16Filled aria-hidden /></span>
+            ) : null}
             {pane ? (
               // 階層は、色だけでなく文字と形（塗り・薄い塗り・枠線）でも示す（FR-244 AC-589）
               <Badge data-testid="tier-label" appearance={TIER_APPEARANCE[pane.tier]} color={pane.tier === 'primary' ? 'brand' : 'informative'} shape={pane.tier === 'primary' ? 'rounded' : pane.tier === 'supporting' ? 'circular' : 'square'} size="medium">{t(TIER_LABEL[pane.tier])}</Badge>

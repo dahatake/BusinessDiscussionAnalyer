@@ -167,6 +167,8 @@ test.describe('FR-183 コンポーネント上部の掴み場所（ハンドル�
 });
 
 test.describe('FR-184 移動中の他のコンポーネントの自動の押し出し・再配置（重ならない配置に限る）', () => {
+  // FR-296 AC-800/801: 既定の構成の下限（360x240）と作業領域のゾーンにより、1600x900 では 2 行目が画面外になるため、画面の高さを広げて前提を揃える（検証内容は変えない）。
+  test.use({ viewport: { width: 1600, height: 1400 } });
   /** ハンドルを掴んで端へ運び、候補（label）の上で離す（FR-152。候補は重ならない配置）。 */
   async function snapTo(page: Page, c: Locator, edge: 'left' | 'right', label: string): Promise<void> {
     const ws = await box(workspace(page));
@@ -231,7 +233,7 @@ test.describe('FR-184 移動中の他のコンポーネントの自動の押し�
     expect(overlap(aBox, bAfter), '重なりが許されていない').toBeGreaterThan(100);
     const cx = (Math.max(aBox.x, bAfter.x) + Math.min(aBox.x + aBox.width, bAfter.x + bAfter.width)) / 2;
     const cy = (Math.max(aBox.y, bAfter.y) + Math.min(aBox.y + aBox.height, bAfter.y + bAfter.height)) / 2;
-    const frontKey = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid^="component-"]:not([data-testid="component-menu"]):not([data-testid="component-actions"])')?.getAttribute('data-testid') ?? null, [cx, cy]);
+    const frontKey = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid^="component-"]:not([data-testid="component-menu"]):not([data-testid="component-actions"]):not([data-testid="component-data"])')?.getAttribute('data-testid') ?? null, [cx, cy]);
     expect(frontKey, 'A が手前に出ていない').toBe(`component-${a}`);
   });
 });
@@ -321,7 +323,8 @@ test.describe('FR-185 移動中・リサイズ中の滑らかなアニメーシ�
     const [k] = await topKeys(page);
     const c = component(page, k);
     const b = await box(c);
-    const grip = page.getByRole('separator').first();
+    // 動かせる範囲が十分な縦の境界（aria-orientation=vertical）を対象にする
+    const grip = page.locator('[role="separator"][aria-orientation="vertical"]').first();
     const gb = await box(grip);
     const x0 = gb.x + gb.width / 2;
     const y0 = gb.y + gb.height / 2;
@@ -345,7 +348,7 @@ test.describe('FR-185 移動中・リサイズ中の滑らかなアニメーシ�
     await selectPersona(page, '事業部門');
     const [k] = await topKeys(page);
     const c = component(page, k);
-    const grip = page.getByRole('separator').first();
+    const grip = page.locator('[role="separator"][aria-orientation="vertical"]').first();
     const gb = await box(grip);
     const ws = await box(workspace(page));
     const x0 = gb.x + gb.width / 2;
