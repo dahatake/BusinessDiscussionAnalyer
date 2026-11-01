@@ -149,7 +149,7 @@ describe('FR-013 AC-591 AC-592 free maximize host and persisted restore', () => 
   for (const key of ['a', 'b']) {
     for (const restore of ['button', 'escape']) {
       it(`FR-013 AC-591 AC-592 ${key} maximizes its host and restores via ${restore}`, () => {
-        const original = { x: 0.2, y: 0.25, w: 0.35, h: 0.3 };
+        const original = { x: 0.2, y: 0.25, w: 0.4, h: 0.3 }; // FR-296: 幅 0.4×1000=400px ≥ PARAM-134（360px）。保存の補正（0.35 → 0.36）の影響を受けない大きさ
         act(() => {
           st().setFloat(key, original);
           st().setFloat(key === 'a' ? 'b' : 'a', { x: 0.1, y: 0.1, w: 0.7, h: 0.7 });

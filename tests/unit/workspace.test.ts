@@ -19,7 +19,7 @@ describe('FR-013 / FR-014 非表示と再表示', () => {
   // FR-014 AC-017
   it('FR-014 AC-017 非表示にしたものを再表示でき、すべて非表示でも再表示できる', () => {
     const l = show(hide(biz(), 'gantt'), 'gantt');
-    expect(keysOf(l).sort()).    toEqual(['discussion-tree', 'gantt', 'issue-solution', 'kpi-okr', 'table']);
+    expect(keysOf(l).sort()).toEqual(['discussion-tree', 'gantt', 'issue-solution', 'table']); // FR-296: 既定は 4 個
     let all: Layout = biz();
     for (const k of keysOf(all)) all = hide(all, k);
     expect(all).toBeNull();
@@ -59,8 +59,9 @@ describe('FR-109 移動・方向・タブ・大きさ', () => {
 
   // FR-109 AC-134
   it('FR-109 AC-134 並べる方向（横/縦）を切り替えられる', () => {
+    // FR-296: 既定は 2 列 × 2 行。主役を含む左の列（主役とガント）の並べる方向が、縦から横に変わる
     const l = toggleDirection(biz(), 'issue-solution') as SplitNode;
-    expect((l.children[0] as SplitNode).dir).toBe('col');
+    expect((l.children[0] as SplitNode).dir).toBe('row');
   });
 
   // FR-109 AC-134
@@ -77,7 +78,7 @@ describe('FR-109 移動・方向・タブ・大きさ', () => {
   // FR-109 AC-134
   it('FR-109 AC-134 境界を動かすと大きさが変わり、合計は 1 で、最小の大きさを下回らない', () => {
     const l = resize(biz(), [], 0, 0.1) as SplitNode;
-    expect(l.sizes[0]).toBeCloseTo(0.8);
+    expect(l.sizes[0]).toBeCloseTo(0.72); // 既定の主役の列の幅 0.62 + 0.1
     expect(l.sizes.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
     const tiny = resize(biz(), [], 0, 5) as SplitNode;
     expect(tiny.sizes[1]).toBeGreaterThanOrEqual(0.1 - 1e-9);

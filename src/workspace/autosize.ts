@@ -1,6 +1,7 @@
 // 操作中のコンポーネントを大きくする自動のサイズ調整（FR-143）と、最小の幅の確保（PARAM-034、AC-227）。
 // React に依存しない純粋な計算。保存するレイアウト（木）は変えず、描くときだけ大きさを組み替える。
 import { clone, keysOf, normalizeSizes, type Layout, type LayoutNode, type SplitNode, type TabsNode } from './layoutModel';
+import { MIN_WINDOW_W } from './windowLimits';
 
 /** PARAM-033: 操作中のコンポーネントの面積を基準の何倍にするか */
 export const FOCUS_SCALE = 1.5;
@@ -134,7 +135,7 @@ export function applyAutoSize(layout: Layout, input: AutoSizeInput): Layout {
   let last: Layout = layout;
   for (let s = FOCUS_SCALE; s >= 1 - 1e-9; s -= STEP) {
     last = sizeWith(layout, input, Math.max(1, s));
-    if (!last || leafWidths(last, w).every((x) => x >= MIN_COMPONENT_WIDTH - 0.5)) return last;
+    if (!last || leafWidths(last, w).every((x) => x >= MIN_WINDOW_W - 0.5)) return last;
   }
   return last;
 }
@@ -146,7 +147,7 @@ function needWidth(node: LayoutNode, min: number): number {
   return node.children.reduce((a, c) => a + needWidth(c, min), 0) + SEPARATOR_PX * (node.children.length - 1);
 }
 
-function floorWidths(node: LayoutNode, width: number, protect: TabsNode | null = null, min = MIN_COMPONENT_WIDTH): LayoutNode {
+function floorWidths(node: LayoutNode, width: number, protect: TabsNode | null = null, min = MIN_WINDOW_W): LayoutNode {
   if (isTabs(node)) return node;
   if (node.dir === 'col') return { ...node, children: node.children.map((c) => floorWidths(c, width, protect, min)) };
   const n = node.children.length;

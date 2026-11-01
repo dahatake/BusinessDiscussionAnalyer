@@ -1,7 +1,7 @@
 // レイアウトのストア（ペルソナ別の保存・復元・既定に戻す）とパネルのキー操作の単体・結合テスト。
 // FR-012 FR-013 FR-014 FR-109 FR-110
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { arrangeAll, defaultLayout, keysOf, type Layout } from '../../src/workspace/layoutModel';
+import { arrangeAll, defaultLayout, keysOf, tierTree, type Layout } from '../../src/workspace/layoutModel';
 import { largestComponent } from '../../src/workspace/persona';
 import { panelKeyAction, runPanelKeyAction, titleDoubleClick, type KeyLike } from '../../src/components/panelKeys';
 
@@ -40,7 +40,8 @@ describe('FR-014 AC-017 / FR-110 AC-135 レイアウトのストア', () => {
     const st = useLayout.getState();
     expect(st.persona).toBe('IT');
     expect(st.maximized).toBeNull();
-    expect(keysOf(effectiveLayout(st)).sort()).toEqual(['architecture', 'knowledge-graph', 'kpi-okr', 'products']);
+    // FR-296: IT の既定は 3 個（architecture・knowledge-graph・products）。FR-243 AC-584 の 4 つ以上は一覧表で補う
+    expect(keysOf(effectiveLayout(st)).sort()).toEqual(['architecture', 'knowledge-graph', 'products', 'table']);
   });
 
   // FR-014 AC-017
@@ -113,7 +114,8 @@ describe('FR-014 AC-017 / FR-110 AC-135 レイアウトのストア', () => {
   it('FR-014 AC-017 merge: 保存値が壊れた JSON でも起動でき、既定のレイアウトになる', async () => {
     const { useLayout, effectiveLayout } = await freshStore(ALL, '{壊れ');
     expect(useLayout.getState().persona).toBe('経営層');
-    expect(effectiveLayout(useLayout.getState())).toEqual(defaultLayout('経営層'));
+    // FR-296: 経営層の既定は 3 個（summary・matrix・ranking）。FR-243 AC-584 の 4 つ以上は一覧表で補う
+    expect(effectiveLayout(useLayout.getState())).toEqual(tierTree('matrix', ['summary', 'ranking'], ['table']));
   });
 
   // FR-014 AC-017
@@ -154,7 +156,7 @@ describe('FR-012 FR-014 AC-017 既定が空になるときの退避（暫定）'
   // FR-012 FR-112 経営層の既定にはキャンバスが背景の全体図として残る（§7 の表）。既定は情報の階層の配置（FR-243・FR-244）: 主役が左上で最大、補助が右、詳細（キャンバス）が下
   it('FR-112 §7 経営層の既定のレイアウトにはキャンバスが含まれ、2×2 マトリクスが最大の領域になる', () => {
     const l = defaultLayout('経営層');
-    expect(keysOf(l)).toEqual(['matrix', 'summary', 'kpi-okr', 'ranking']);
+    expect(keysOf(l)).toEqual(['matrix', 'summary', 'ranking']); // FR-296 AC-800: 既定の同時表示は 4 個以内（経営層は 3）
     expect(largestComponent(l)).toBe('matrix');
   });
 
