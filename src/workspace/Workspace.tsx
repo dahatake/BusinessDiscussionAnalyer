@@ -1660,7 +1660,8 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
         </div>
       ) : null}
       {parkedKeys.length > 0 ? (
-        <div hidden aria-hidden data-testid="parked-windows">
+        // visibility:hidden: Tabster は display:none の中の SVG 要素（offsetParent を持たない。グラフのノード）を「見えている」と見なして Tab の行き先にし、フォーカスが動かない罠になる（NFR-A11Y-001 AC-170）。visibility は継承され、Tabster も見る
+        <div hidden aria-hidden data-testid="parked-windows" style={{ visibility: 'hidden' }}>
           {parkedKeys.map((k) => <Slot key={k} host={hostOf(k)} hidden />)}
         </div>
       ) : null}
