@@ -283,7 +283,7 @@ function BusinessGraphScreen() {
           </span>
           <label className={s.check}>
             <Text>{t('ホップ数（{min}〜{max}）', { min: HOP_MIN, max: HOP_MAX })}</Text>
-            <input type="range" aria-label={t('ホップ数')} min={HOP_MIN} max={HOP_MAX} step={1} value={hop} onChange={(e) => setHop(clampHop(Number(e.target.value)))} />
+            <input type="range" style={{ height: 24, cursor: 'pointer' }} aria-label={t('ホップ数')} min={HOP_MIN} max={HOP_MAX} step={1} value={hop} onChange={(e) => setHop(clampHop(Number(e.target.value)))} />
             <Text>{hop}</Text>
           </label>
         </div>

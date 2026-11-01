@@ -573,6 +573,7 @@ export function Workspace({ screens }: { screens: readonly ScreenDefinition[] })
       },
       maximized: isMax,
       front: frontKey === key,
+      compact,
       expanded: expandedOut === key,
       toggleExpand: () => actions().toggleExpanded(key),
       floating: isFloat,
